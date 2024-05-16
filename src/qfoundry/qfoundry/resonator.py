@@ -160,7 +160,7 @@ class circuit():
         return 1/(2*np.pi*np.sqrt(self.L*self.C))
     
     def Q(self):
-        return self.R/np.sqrt(self.C*self.L**2) 
+        return self.R*np.sqrt(self.C/self.L) 
     
     def Z(self,f):
         '''
@@ -188,22 +188,18 @@ class cpw_resonator(circuit):
 
         if frequency is None:
             self.length = length
-            self.C = self.wg.C_m*self.length/2 + Cp
-            self.R = wg.Z_0k/(self.wg.alpha*self.length)
-            self.L = 2*self.wg.L_m*self.length/(self.n**2*np.pi**2)
-            self.f0 = self._f0_()/(self.length_f/2)
+            self.C = self.wg.C_m*self.length + Cp
+            self.f0 = self._f0_()/(self.length_f)
             self.wn = self.w0()*n
         elif length is None:
             self.f0 = frequency
             self.wn = 2*np.pi*self.f0*n
             self.length = self._length_(Cp) #If Cp == 0, the length is calculated using only the cpw
-            self.C = self.wg.C_m*self.length/2 + Cp
-            self.R = wg.Z_0k/(self.wg.alpha*self.length)
-            self.L = 2*self.wg.L_m*self.length/(self.n**2*np.pi**2)
-            
-        
+            self.C = self.wg.C_m*self.length + Cp
         else:
             return None
+        self.R = wg.Z_0k/(self.wg.alpha*self.length)
+        self.L = 2*self.wg.L_m*self.length/(self.n**2*np.pi**2)
         
 
     def _resonance_(self):
@@ -240,7 +236,12 @@ class cpw_resonator(circuit):
     
     def w0(self):
         return 2*np.pi*self._f0_()/(self.length_f/2)
-
+    
+    def kappa(self):
+        return self.f0/self.Q()
+    
+    def Q_ext(self, Cin):
+        return np.pi()/(4*(self.wg.Z_0*2*np.pi*self.f0*Cin)**2)
 
 #
 #    [1] Ghione 1984, doi: 10.1049/el:19840120
