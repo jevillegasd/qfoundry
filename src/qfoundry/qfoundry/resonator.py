@@ -2,10 +2,44 @@ from scipy.constants import c, mu_0, epsilon_0
 import numpy as np
 from scipy import special as sp
 
+
+def LCR_f(L: float,C:float,R:float=0.0) -> float:
+    return 1/np.sqrt(L*C)/2*np.pi
+
+def resonator_frequency(resonator_length:float, epsilon_e:float, length_factor: int=4) -> float:
+    return ((c)/((epsilon_e**.5)))*(1/(length_factor*resonator_length))
+
+def resonator_length(resonator_freq: float, epsilon_e: float, length_factor: int=4) -> float:
+    #quarter_wave resonator
+    return ((c)/((epsilon_e**.5)))*(1/(length_factor*resonator_freq))
+
 class cpw:
-    '''
-        A coplanar waveguide 
-    '''
+    """ 
+    A coplanar waveguide.
+
+    Attributes
+    ----------
+        epsilon_r: float   
+            Dielectric constant of the substrate
+        height: float
+            substrate\'s height in um
+        width: float,    
+            Microstrip width in um
+        spacing: float
+            Space from ground plane in um
+        thickness: float = 0.1
+            Superconductive metal layer thickness
+        rho: float = 2.06e-3
+            s
+        tc: float= 1.23e-3
+            s
+        alpha: float = 2.4e-4):   
+            attenuation cofficient m^-1 
+
+    Methods
+    -------
+
+    """
     def __init__(self,    epsilon_r: float,       #Dielectric constant of the substrate
                         height: float,    #[length], substrate's height in um
                         width: float,    #[length], microstrip width in um
@@ -32,20 +66,20 @@ class cpw:
         self.epsilon_ek = c**2*(self.C_m*self.L)
         self.eta_0 = mu_0*c #~120*np.pi
 
-    def LCR_f(L,C,R):
+    def LCR_f(L,C,R) -> float:
         return 1/np.sqrt(L*C)/2*np.pi
 
-    def resonator_frequency(resonator_length, epsilon_e, length_factor=4):
+    def resonator_frequency(resonator_length, epsilon_e, length_factor=4)-> float:
         # quarter_wave resonator
         return ((c)/((epsilon_e**.5)))*(1/(length_factor*resonator_length))
 
-    def resonator_length(resonator_freq, epsilon_e, length_factor=4):
+    def resonator_length(resonator_freq, epsilon_e, length_factor=4)-> float:
         #quarter_wave resonator
         return ((c)/((epsilon_e**.5)))*(1/(length_factor*resonator_freq))
 
-    def capacitances(self,w,s,h,eps_r):
+    def capacitances(self,w:float,s:float,h:float,eps_r:float):
         '''
-        Calculate capacitances and effective poermittivity of CPW
+        Calculate capacitances and effective permittivity of CPW
         '''
         k_0 = w/(w+2*s)
         k_1 = np.sinh(np.pi*w/(4*h))/np.sinh((np.pi*(w+2*s))/(4*h))
@@ -62,9 +96,9 @@ class cpw:
         C_m = 4*epsilon_0*eps_eff*K0/K0p
         return C_m, eps_eff
     
-    def inductances(self,w,s,d,h, rho= 2.06e-3, tc= 1.23e-3):
+    def inductances(self,w:float,s:float,d:float,h:float, rho:float= 2.06e-3, tc:float= 1.23e-3):
         '''
-        Calculate inductances of CPW
+        Calculate normal and kinetic inductances of a CPW
         '''
         k_0 = w/(w+2*s)
         k_1 = np.sinh(np.pi*w/(4*h))/np.sinh((np.pi*(w+2*s))/(4*h))
@@ -80,7 +114,6 @@ class cpw:
         L_m= mu_0/4*K0p/K0  
 
         ######### Kinetic inductance ############################
-        
         A = (1/(2*k_0**2*K0**2))
         g = A*(-    np.log(d/(4*w)) -   k_0*np.log(d/(4*(w+2*s)))   +   (2*(w+s)/(w+2*s))*np.log(s/(w+s)))
 
@@ -88,21 +121,27 @@ class cpw:
         l0 = 1.05e-3*np.sqrt(rho/tc)
         L_k = mu_0*(l0**2)/(w*d)*g
         return L_m, L_k
-    
-
-def LCR_f(L,C,R):
-    return 1/np.sqrt(L*C)/2*np.pi
-
-def resonator_frequency(resonator_length, epsilon_e, length_factor=4):
-    # quarter_wave resonator
-    return ((c)/((epsilon_e**.5)))*(1/(length_factor*resonator_length))
-
-def resonator_length(resonator_freq, epsilon_e, length_factor=4):
-    #quarter_wave resonator
-    return ((c)/((epsilon_e**.5)))*(1/(length_factor*resonator_freq))
-
 
 class circuit():
+    """ 
+    A general RLC electrical circuit.
+
+    Attributes
+    ----------
+        R:float=np.inf
+            Circuit equivalent resistance in Ohms
+        L:float = np.inf
+            Circuit equivalent inductance in Henry
+        C:float = 0.0
+            Circuit equivalent capacitrance in Farads
+        type: str = 'p'
+            Circuit type. p is capacitor in parallel and s in series capacitor,
+
+    Methods
+    -------
+
+    """
+
     def __init__(self, R:float=np.inf, L:float = np.inf, C:float = 0, type: str = 'p'): #Type is p for parallel RLC and s for series
         self.R = R
         self.L = L
@@ -130,8 +169,13 @@ class circuit():
         if self.type == 's':
             return  self._Zs_(f)
         else:
-            return  self._Zp_(f)  
-
+            return  self._Zp_(f)
+        
+    def __add__(self, o):
+        return self.Z + o.Z 
+    
+    def __multiply__(self, o):
+        return self.Z*o.Z 
 
 class cpw_resonator(circuit):
     '''
