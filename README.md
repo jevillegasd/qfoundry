@@ -14,7 +14,7 @@ pip install -e .
 ### Waveguides and Resonators
 Coplanar waveguides (CPW) are the main builiding block of most circuits. A superconfuctive model of waveguides is directly implemented in the resonator.cpw module. A new CPW can be instantiated as 
 ```python
-from qfoundry  import resonator.cpw
+from qfoundry.resonator  import cpw
 
 epsilon_r = 11.7            #Intrinsic Silicon
 h = 525.      #Substrate Height in [μm]
@@ -30,7 +30,7 @@ display(Math(r'Z_0 = %2.2f\ \Omega,\ \epsilon_{eff} = %2.2f'%(wg.Z_0, wg.epsilon
 Using the generated waveguide, an instance of a resonator can be cretaed using the ``cpw_resonator`` class. Resonatros can be defined using either the length of the resonator or the desired resonance frequency as
 
 ```python
-from qfoundry  import resonator.cpw_resonator
+from qfoundry.resonator  import cpw_resonator
 
 f0 = 6.8*1e9
 length_factor = 2 #4:Quarterwave, 2:Halfwave, 1:Fullwave
