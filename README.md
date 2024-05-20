@@ -39,7 +39,20 @@ n = 1 #Mode number
 
 res = cpw_resonator(wg, frequency = f0, length_f = length_factor, n=n)
 ```
-Parameters like resonator capacitance, kinetic inductances and quality factors are directly calculated and are readily accesible.
+Parameters like resonator capacitance, kinetic inductances and quality factors are directly calculated and are readily accesible. Additionaly, the module creates a simple RCL impedance model that can be used for simple classical calculations using impedance based operattions. These can be sued to plot the freqquemncy response of the resonator for example using
+```python
+import numpy as np 
+frqs = np.linspace(6.6,7,1001)*1e9
+S21 = res.Z(frqs)
+
+f, axs = plt.subplots(1, 2, figsize=(12, 5))
+plt.subplot(1,2,1)
+fig = plt.plot(frqs,np.real(S21))
+plt.subplot(1,2,2)
+fig = plt.plot(frqs,np.imag(S21))
+```
+
+![image](https://github.com/jevillegasd/qfoundry/assets/14344419/8197201d-57d6-4959-8e76-0b02a94dcb08)
 
 ### Qubits
 
