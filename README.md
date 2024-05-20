@@ -15,6 +15,7 @@ pip install -e .
 Coplanar waveguides (CPW) are the main builiding block of most circuits. A superconfuctive model of waveguides is directly implemented in the resonator.cpw module. A new CPW can be instantiated as 
 ```python
 from qfoundry.resonator  import cpw
+from IPython.display import display, Math
 
 epsilon_r = 11.7            #Intrinsic Silicon
 h = 525.      #Substrate Height in [μm]
