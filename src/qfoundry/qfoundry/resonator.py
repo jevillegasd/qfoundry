@@ -1,7 +1,7 @@
 from scipy.constants import c, mu_0, epsilon_0
 import numpy as np
 from scipy import special as sp
-
+import scqubits as scq
 
 # def LCR_f(L: float,C:float,R:float=0.0) -> float:
 #     return 1/np.sqrt(L*C)/2*np.pi
@@ -173,46 +173,50 @@ class cpw_resonator(circuit):
     '''
     
     '''
+
+    
+
     def __init__(self, wg: cpw, length:float = None, frequency: float = None, length_f:int = 2, n:int =1, Cg:float = 0.0, Ck:float = 0.0):
         self.wg = wg
         self.length_f = length_f #length factor: 4: quarter wavelength resonator
         self.n = n #moode number   
 
-        if frequency is None:
+        if frequency is None: 
             self.length = length
-            self.C = self.wg.C_m*self.length + Cg + Ck
-            self.L = 2*self.wg.L_m*self.length/(self.n**2*np.pi**2)
-            #self.f0 = self._f0_()
-            #self.wn = self.w0()*n
-        elif length is None:
-            #self.f0 = frequency
-            #self.wn = 2*np.pi*self.f0*n
+            self.C = 1/2*self.wg.C_m*self.length + Cg + Ck
+            self.L = 1/2*self.wg.L_m*self.length/(self.n**2*np.pi**2)
 
-            self.length = self._get_length_(frequency*self.length_f*n, Cg + Ck) #If Cg + Ck == 0, the length is calculated using only the cpw
-            
-            #self.L = 2*self.wg.L_m*self.length/(self.n**2*np.pi**2)
-            self.L = ((self.wg.L_m+self.wg.L_k)*self.length/((2*np.pi)**2))
-            self.C = self.wg.C_m*self.length + Cg + Ck
+        elif length is None: 
+            self.length = self._get_length_(frequency*n, Cg + Ck, length_f = self.length_f) 
+            self.L = 1/2*self.wg.L_m*self.length/(self.n**2*np.pi**2)
+            self.C = 1/2*self.wg.C_m*self.length + Cg + Ck
             
         else:
             return None
         self.R = wg.Z_0k/(self.wg.alpha*self.length)
+
+        self.qmodel = scq.Oscillator(
+            E_osc=self.f0()*1e-9,
+            l_osc = self.length,
+            truncated_dim=4  # up to 3 photons (0,1,2,3)
+        )
     
-    def _get_length_(self, f0, Cp:float = 0.0):
+    def _get_length_(self, f0, Cp:float = 0.0, length_f:int=1):
         from scipy.constants import c as c0
         def solve_quad(a,b,c):
             return  (-b + np.sqrt(b**2-4*a*c))/(2*a),  (-b - np.sqrt(b**2-4*a*c))/(2*a) 
         
+        #If Cg + Ck == 0, the length is calculated using only the cpw
         if Cp >1e-20:
-            Cm = self.wg.C_m
-            Lm = self.wg.L_m
-            w = 2*pi*f0
-            Ls = Lm*(2/(self.n*np.pi))**2
+            Cm = 1/2*self.wg.C_m
+            Lm = 1/2*self.wg.L_m
+            w = 2*np.pi*f0*length_f
+            Ls = Lm/(self.n*np.pi)**2
 
-            l1,l2 = solve_quad(Cm*Ls*w**2/4, Ls*Cp*w**2/2, -1) 
-            return max(l1,l2)/(self.length_f/2) #This correction is not very good. Better to get the exact L and C given a length factor before calculating the roots
+            l1,l2 = solve_quad(Cm*Ls*w**2, Ls*Cp*w**2, -1) 
+            return max(l1,l2) #This correction is not very good. Better to get the exact L and C given a length factor before calculating the roots
         else:
-            return ((c0)/((self.wg.epsilon_ek**.5)))*(1/(f0))
+            return ((c0)/((self.wg.epsilon_ek**.5)))*(1/(f0*length_f))
 
     def Z_TL(self, f:np.array):
         wn = self.w0()*self.n

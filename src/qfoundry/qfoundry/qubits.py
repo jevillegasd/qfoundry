@@ -66,12 +66,12 @@ class transmon:
         self.Cr = res_ro.C
         self.res_ro = res_ro
         
-        self.model = scq.Transmon(  EJ=self.Ej()/1e9,
+        self.qmodel = scq.Transmon(  EJ=self.Ej()/1e9,
                                     EC=self.Ec()/1e9,
                                     ng=ng,
                                     ncut=31)
         
-        self.alpha = self.model.anharmonicity()*1e9 #-self.Ec()
+        self.alpha = self.qmodel.anharmonicity()*1e9 #-self.Ec()
         self.Delta = abs(self.res_ro.f0-self.f01())
         if kappa == 0.0:
             self.kappa = self.res_ro.kappa()
@@ -107,7 +107,7 @@ class transmon:
         '''
         Qubit 01 frequency
         '''
-        return self.model.E01()*1e9
+        return self.qmodel.E01()*1e9
         #return ((8*self.Ej()*self.Ec())**0.5-self.Ec())
     
     def f02(self):
