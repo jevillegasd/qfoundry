@@ -1,5 +1,7 @@
 from qfoundry.resonator import cpw, circuit, cpw_resonator
 
+import scqubits as scq
+
 from scipy.constants import Boltzmann  as k_B
 from scipy.constants import e  as e_0
 from scipy.constants import Planck  as h_0
@@ -29,7 +31,8 @@ class transmon:
         Single Jucntion Qubit
     '''
     def __init__(self,
-                 R_j:float,       # Totsal junction resistance
+                 R_j:float=0.0,       # Total junction resistance
+                 E_j:float=0.0,
                  C_sum:float=67.5e-15,
                  C_g:float  =21.7e-15,
                  C_k:float  =36.7e-15,
@@ -38,24 +41,42 @@ class transmon:
                  res_ro     = cpw_resonator(cpw(11.7,0.1,12,6, alpha=2.4e-2),frequency = 7e9, length_f = 2),    #Readout Resonator
                  R_jx:float = 0.0,       # Resistance correction factor
                  mat = sc_metal(1.14),
-                 T = 20.e-3
+                 T = 20.e-3,
+                 kappa = 0.0,
+                 ng =0.3 #Offset Charge
                  ):
+        self.mat = mat
+        self.T = T
+        self.mat.T = T
+        self.R_jx = R_jx
 
-        self.R_j = R_j       
+        if (R_j == 0.0) & (E_j == 0.0):
+            Exception('Either E_j or R_j need to be specified.')
+        elif R_j == 0.0:
+            Ic = E_j*2*e_0*2*pi
+            self.R_j = pi*self.mat.sc_gap()/(2*e_0*Ic)*tanh(self.mat.sc_gap()/(2*k_B*self.T)) - R_jx
+        else:
+            self.R_j = R_j     
+            
         self.C_sum = C_sum
         self.C_g = C_g
         self.C_k = C_k
         self.C_xy = C_xy
         self.C_in = C_in
         self.Cr = res_ro.C
-        self.R_jx = R_jx
-        self.T = T
-        self.mat = mat
         self.res_ro = res_ro
-
-        self.alpha = -self.Ec()
+        
+        self.model = scq.Transmon(  EJ=self.Ej()/1e9,
+                                    EC=self.Ec()/1e9,
+                                    ng=ng,
+                                    ncut=31)
+        
+        self.alpha = self.model.anharmonicity()*1e9 #-self.Ec()
         self.Delta = abs(self.res_ro.f0-self.f01())
-        self.kappa = self.res_ro.kappa()
+        if kappa == 0.0:
+            self.kappa = self.res_ro.kappa()
+        else:
+            self.kappa = kappa
 
     def Ic(self):
         self.mat.T = self.T
@@ -86,7 +107,8 @@ class transmon:
         '''
         Qubit 01 frequency
         '''
-        return ((8*self.Ej()*self.Ec())**0.5-self.Ec())
+        return self.model.E01()*1e9
+        #return ((8*self.Ej()*self.Ec())**0.5-self.Ec())
     
     def f02(self):
         '''

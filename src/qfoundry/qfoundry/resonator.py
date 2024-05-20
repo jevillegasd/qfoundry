@@ -47,7 +47,7 @@ class cpw:
                         thickness: float = 0.1,
                         rho: float = 2.06e-3,
                         tc: float= 1.23e-3,
-                        alpha: float = 2.4e-4):   # attenuation cofficient m^-1 
+                        alpha: float = 2.4e-2):   # attenuation cofficient m^-1 
         self.w = width #to match [1]
         self.s = spacing #to match [1]
         self.d = thickness #to match [1]
@@ -181,26 +181,29 @@ class cpw_resonator(circuit):
     '''
     
     '''
-    def __init__(self, wg: cpw, length:float = None, frequency: float = None, length_f:int = 2, n:int =1, Cp:float = 0.0):
+    def __init__(self, wg: cpw, length:float = None, frequency: float = None, length_f:int = 2, n:int =1, Cg:float = 0.0, Ck:float = 0.0):
         self.wg = wg
         self.length_f = length_f #length factor: 4: quarter wavelength resonator
         self.n = n #moode number   
 
         if frequency is None:
             self.length = length
-            self.C = self.wg.C_m*self.length + Cp
+            self.C = self.wg.C_m*self.length + Cg + Ck
+            self.L = 2*self.wg.L_m*self.length/(self.n**2*np.pi**2)
             self.f0 = self._f0_()/(self.length_f)
             self.wn = self.w0()*n
         elif length is None:
             self.f0 = frequency
             self.wn = 2*np.pi*self.f0*n
-            self.length = self._length_(Cp) #If Cp == 0, the length is calculated using only the cpw
-            self.C = self.wg.C_m*self.length + Cp
+            self.length = self._length_(Cg + Ck) #If Cg + Ck == 0, the length is calculated using only the cpw
+            self.L = 2*self.wg.L_m*self.length/(self.n**2*np.pi**2)
+            self.C = self.wg.C_m*self.length + Cg + Ck
         else:
             return None
         self.R = wg.Z_0k/(self.wg.alpha*self.length)
-        self.L = 2*self.wg.L_m*self.length/(self.n**2*np.pi**2)
         
+    # def Q(self):
+    #     return 1/self.R*np.sqrt(self.L/self.C) 
 
     def _resonance_(self):
         return resonator_frequency(self.length, self.wg.epsilon_ek,self.length_f)*self.n
