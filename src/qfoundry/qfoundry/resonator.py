@@ -110,7 +110,7 @@ class cpw:
         g = A*(-    np.log(d/(4*w)) -   k_0*np.log(d/(4*(w+2*s)))   +   (2*(w+s)/(w+2*s))*np.log(s/(w+s)))
 
         #print g, a, b, c , d
-        l0 = 1.05e-3*np.sqrt(rho/tc)
+        l0 = 1.05e-3*np.sqrt(rho/tc) # London penetration  depth
         L_k = mu_0*(l0**2)/(w*d)*g
         return L_m, L_k
 
@@ -126,6 +126,8 @@ class circuit():
             Circuit equivalent inductance in Henry
         C:float = 0.0
             Circuit equivalent capacitrance in Farads
+        n:float = 0.0
+            RCL resonance mode
         type: str = 'p'
             Circuit type. p is capacitor in parallel and s in series capacitor,
 
@@ -134,19 +136,20 @@ class circuit():
 
     """
 
-    def __init__(self, R:float=np.inf, L:float = np.inf, C:float = 0, type: str = 'p'): #Type is p for parallel RLC and s for series
+    def __init__(self, R:float=np.inf, L:float = np.inf, C:float = 0, n:float = 1, type: str = 'p'): #Type is p for parallel RLC and s for series
         self.R = R
         self.L = L
         self.C = C
+        self.n = n
         self.type = type 
 
     def _Zs_(self,f): 
         w = 2*np.pi*f
         return self.R  +  +1j*w*self.L  +  1/(1j*w*self.C)
     
-    def _Zp_(self,f): 
+    def _Zp_(self,f,n): 
         w = 2*np.pi*f
-        return 1/(1/self.R  +  1/(1j*w*self.L)  +  1j*w*self.C)
+        return 1/(1/self.R  +  1/(1j*w*self.L*n)  +  1j*w*self.C*n)
 
     def _f0_(self):
         return 1/(2*np.pi*np.sqrt(self.L*self.C))
@@ -179,17 +182,17 @@ class cpw_resonator(circuit):
     def __init__(self, wg: cpw, length:float = None, frequency: float = None, length_f:int = 2, n:int =1, Cg:float = 0.0, Ck:float = 0.0):
         self.wg = wg
         self.length_f = length_f #length factor: 4: quarter wavelength resonator
-        self.n = n #moode number   
+        self.n = n #mode number   
 
-        if frequency is None: 
+        if frequency is None: # Input is length
             self.length = length
-            self.C = 1/2*self.wg.C_m*self.length + Cg + Ck
-            self.L = 1/2*self.wg.L_m*self.length/(self.n**2*np.pi**2)
+            self.C = self.wg.C_m*self.length + Cg + Ck
+            self.L = self.wg.L_m*self.length/(self.n*2*np.pi)**2
 
-        elif length is None: 
-            self.length = self._get_length_(frequency*n, Cg + Ck, length_f = self.length_f) 
-            self.L = 1/2*self.wg.L_m*self.length/(self.n**2*np.pi**2)
-            self.C = 1/2*self.wg.C_m*self.length + Cg + Ck
+        elif length is None: # Input is frequency
+            self.length = self._get_length_(frequency*length_f, Cg + Ck, n = n) 
+            self.L = self.wg.L_m*self.length/(self.n*2*np.pi)**2
+            self.C = self.wg.C_m*self.length+ Cg + Ck
             
         else:
             return None
@@ -201,28 +204,30 @@ class cpw_resonator(circuit):
             truncated_dim=4  # up to 3 photons (0,1,2,3)
         )
     
-    def _get_length_(self, f0, Cp:float = 0.0, length_f:int=1):
+    def _get_length_(self, f0, Cp:float = 0.0, n:int=1):
         from scipy.constants import c as c0
         def solve_quad(a,b,c):
             return  (-b + np.sqrt(b**2-4*a*c))/(2*a),  (-b - np.sqrt(b**2-4*a*c))/(2*a) 
         
         #If Cg + Ck == 0, the length is calculated using only the cpw
         if Cp >1e-20:
-            Cm = 1/2*self.wg.C_m
-            Lm = 1/2*self.wg.L_m
-            w = 2*np.pi*f0*length_f
-            Ls = Lm/(self.n*np.pi)**2
+            Cm = self.wg.C_m
+            Lm = self.wg.L_m
+            w = 2*np.pi*f0*n
+            Ls = Lm/(2*self.n*np.pi)**2
 
             l1,l2 = solve_quad(Cm*Ls*w**2, Ls*Cp*w**2, -1) 
-            return max(l1,l2) #This correction is not very good. Better to get the exact L and C given a length factor before calculating the roots
+            return max(l1,l2)
         else:
-            return ((c0)/((self.wg.epsilon_ek**.5)))*(1/(f0*length_f))
+            return ((c0)/((self.wg.epsilon_ek**.5)))*(1/(f0*n))
 
     def Z_TL(self, f:np.array):
-        wn = self.w0()*self.n
-        fn = wn/(2*np.pi)
+        fn = self.w0()/(2*np.pi)
         Z = self.wg.Z_0k/(self.wg.alpha*self.length + 1j*np.pi*(f-fn)/fn)
         return Z/Z.max()
+    
+    def Zp(self, f):
+        return self._Zp_(f, self.length_f)
 
     def Z(self, f):
         '''
@@ -234,7 +239,7 @@ class cpw_resonator(circuit):
         return 2*np.pi*self.f0()
     
     def f0(self):
-        return self._f0_()/self.length_f #__f0__() calcuklates the native ground LC resonance of the RCL circuit
+        return self._f0_()/self.length_f #__f0__() calculates the fundamental LC resonance of the RCL circuit
     
     def kappa(self):
         return self.f0()/self.Q()
