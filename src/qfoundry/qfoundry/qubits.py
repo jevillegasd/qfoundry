@@ -28,7 +28,20 @@ class sc_metal:
 
 class transmon:
     '''
-        Single Jucntion Qubit
+    Single Jucntion Qubit
+        R_j:float=0.0,       # Total junction resistance
+        E_j:float=0.0,
+        C_sum:float=67.5e-15,
+        C_g:float  =21.7e-15,
+        C_k:float  =36.7e-15,
+        C_xy:float =0.e-15,
+        C_in:float =8.98e-15,
+        res_ro     = cpw_resonator(cpw(11.7,0.1,12,6, alpha=2.4e-2),frequency = 7e9, length_f = 2),    #Readout Resonator
+        R_jx:float = 0.0,       # Resistance correction factor
+        mat = sc_metal(1.14),
+        T = 20.e-3,
+        kappa = 0.0,
+        ng =0.3 #Offset Charge
     '''
     def __init__(self,
                  R_j:float=0.0,       # Total junction resistance
@@ -69,10 +82,11 @@ class transmon:
         self.qmodel = scq.Transmon(  EJ=self.Ej()/1e9,
                                     EC=self.Ec()/1e9,
                                     ng=ng,
-                                    ncut=31)
+                                    ncut=40,
+                                    truncated_dim=4)
         
         self.alpha = self.qmodel.anharmonicity()*1e9 #-self.Ec()
-        self.Delta = abs(self.res_ro.f0-self.f01())
+        self.Delta = abs(self.res_ro.f0()-self.f01())
         if kappa == 0.0:
             self.kappa = self.res_ro.kappa()
         else:
@@ -95,7 +109,7 @@ class transmon:
         return self.Ic()/(2*e_0)/(2*pi)
 
     def g01(self):
-        return e_0*self.C_g/(self.C_g+self.C_sum)*sqrt(2*self.res_ro.f0/(h_0*self.res_ro.C))
+        return e_0*self.C_g/(self.C_g+self.C_sum)*sqrt(2*self.res_ro.f0()/(h_0*self.res_ro.C))
     
     def chi(self):
         '''
@@ -130,14 +144,19 @@ class transmon:
         return (self.Delta)**2/(self.g01()**2*self.kappa)
     
     def __str__(self):
-        return ("Ec = %3.2f MHz \nEj = %3.2f GHz \nf_01 = %3.2f GHz \n" \
-                "f_02 = %3.2f GHz \ng_01 = %3.2f MHz \nchi = %3.2f MHz \nT1_max = %3.2f us"%(\
-                self.Ec()*1e-6, \
+            return ("Ec = \t%3.2f MHz \nEj = \t%3.2f GHz \nEJ/EC= \t%1.2f\nf_01 = \t%3.2f GHz \n" \
+                "f_02 = \t%3.2f GHz \ng_01 = \t%3.2f MHz \nchi =\t%3.2f MHz \nT1_max =\t%3.2f us\n" \
+                "alpha =\t%3.2f MHz"%(
+                self.Ec()*1e-6, 
                 self.Ej()*1e-9, 
+                self.Ej()/self.Ec(),
                 self.f01()*1e-9,
                 self.f02()*1e-9,      
                 self.g01()*1e-6,  
                 self.chi()*1e-6,
-                self.T1_max()*1e6)
+                self.T1_max()*1e6,
+                self.alpha*1e-6
                 )
+            )
+                
                                                 
