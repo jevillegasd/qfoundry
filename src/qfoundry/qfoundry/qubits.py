@@ -56,7 +56,9 @@ class transmon:
                  mat = sc_metal(1.14),
                  T = 20.e-3,
                  kappa = 0.0,
-                 ng =0.3 #Offset Charge
+                 ng =0.3, #Offset Charge
+                 ncut = 40,
+                 truncated_dim = 10
                  ):
         self.mat = mat
         self.T = T
@@ -82,8 +84,8 @@ class transmon:
         self.qmodel = scq.Transmon(  EJ=self.Ej()/1e9,
                                     EC=self.Ec()/1e9,
                                     ng=ng,
-                                    ncut=40,
-                                    truncated_dim=4)
+                                    ncut=ncut,
+                                    truncated_dim=truncated_dim)
         
         self.alpha = self.qmodel.anharmonicity()*1e9 #-self.Ec()
         self.Delta = abs(self.res_ro.f0()-self.f01())
