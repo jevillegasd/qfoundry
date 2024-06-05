@@ -113,6 +113,7 @@ class cpw:
         l0 = 1.05e-3*np.sqrt(rho/tc) # London penetration  depth
         L_k = mu_0*(l0**2)/(w*d)*g
         return L_m, L_k
+    
 
 class circuit():
     """ 
@@ -196,7 +197,7 @@ class cpw_resonator(circuit):
             
         else:
             return None
-        self.R = wg.Z_0k/(self.wg.alpha*self.length)
+        self.R = wg.Z_0k/(self.wg.alpha*self.length*self.length_f)
 
         self.qmodel = scq.Oscillator(
             E_osc=self.f0()*1e-9,
