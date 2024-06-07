@@ -184,6 +184,7 @@ class cpw_resonator(circuit):
         self.wg = wg
         self.length_f = length_f #length factor: 4: quarter wavelength resonator
         self.n = n #mode number   
+        self.Cin = Ck
 
         if frequency is None: # Input is length
             self.length = length
@@ -245,8 +246,17 @@ class cpw_resonator(circuit):
     def kappa(self):
         return self.f0()/self.Q()
     
+    def kappa_ext(self):
+        return self.fwhm()
+    
     def Q_ext(self, Cin):
-        return np.pi()/(4*(self.wg.Z_0*2*np.pi*self.f0*Cin)**2)
+        return np.pi/(4*(self.wg.Z_0*2*np.pi*self.f0()*Cin)**2)
+        #return (1+(wr*C_k*R_L)**2)*(C+C_k))/(wr*C_k**2*R_L)  R_L=50 Ohm
+    
+    def fwhm(self, Cin = None):
+        if Cin == None:
+            Cin = self.Cin
+        return self.f0()/self.Q_ext(Cin = Cin)
 
 #
 #    [1] Ghione 1984, doi: 10.1049/el:19840120

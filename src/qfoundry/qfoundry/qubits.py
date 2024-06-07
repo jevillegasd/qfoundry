@@ -90,7 +90,7 @@ class transmon:
         self.alpha = self.qmodel.anharmonicity()*1e9 #-self.Ec()
         self.Delta = abs(self.res_ro.f0()-self.f01())
         if kappa == 0.0:
-            self.kappa = self.res_ro.kappa()
+            self.kappa = self.res_ro.kappa_ext()
         else:
             self.kappa = kappa
 
@@ -115,7 +115,7 @@ class transmon:
     
     def chi(self):
         '''
-        Dispersive shitf
+        Dispersive shift
         '''
         return -(self.g01()**2)/(self.Delta)*(1/(1+self.Delta/self.alpha))
 
