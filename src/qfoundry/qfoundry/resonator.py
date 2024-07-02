@@ -137,32 +137,32 @@ class circuit():
 
     """
 
-    def __init__(self, R:float=np.inf, L:float = np.inf, C:float = 0, n:float = 1, type: str = 'p'): #Type is p for parallel RLC and s for series
-        self.R = R
-        self.L = L
-        self.C = C
+    def __init__(self, R:float=np.inf, L:float = np.inf, C:float = 0, n:float = 1, c_type: str = 'p'): #Type is p for parallel RLC and s for series
+        self._R_ = R
+        self._L_ = L
+        self._C_ = C
         self.n = n
-        self.type = type 
+        self.c_type = c_type
 
     def _Zs_(self,f): 
-        w = 2*np.pi*f
-        return self.R  +  +1j*w*self.L  +  1/(1j*w*self.C)
+        w = 2*np.pi*self._f0_()
+        return self.R()  +  +1j*w*self.L()  +  1/(1j*w*self.C())
     
     def _Zp_(self,f,n): 
-        w = 2*np.pi*f
-        return 1/(1/self.R  +  1/(1j*w*self.L*n)  +  1j*w*self.C*n)
+        w = 2*np.pi*self._f0_()
+        return 1/(1/self.R()  +  1/(1j*w*self.L()*n)  +  1j*w*self.C()*n)
 
     def _f0_(self):
-        return 1/(2*np.pi*np.sqrt(self.L*self.C))
+        return 1/(2*np.pi*np.sqrt(self.L()*self.C()))
     
     def Q(self):
-        return self.R*np.sqrt(self.C/self.L) 
+        return self._R_*np.sqrt(self.C()/self.L()) 
     
     def Z(self,f):
         '''
             Frequency domain numeric transfer function (impedance)
         '''
-        if self.type == 's':
+        if self.c_type == 's':
             return  self._Zs_(f)
         else:
             return  self._Zp_(f)
@@ -172,14 +172,22 @@ class circuit():
     
     def __multiply__(self, o):
         return self.Z*o.Z 
+    
+    def R(self):
+        return self._R_
+
+    def C(self):
+        return self._C_
+    
+    def L(self):
+        return self._L_
 
 class cpw_resonator(circuit):
     '''
-    
+    A coplanar waveguide resonator
     '''
 
     
-
     def __init__(self, wg: cpw, length:float = None, frequency: float = None, length_f:int = 2, n:int =1, Cg:float = 0.0, Ck:float = 0.0):
         self.wg = wg
         self.length_f = length_f #length factor: 4: quarter wavelength resonator
@@ -188,17 +196,17 @@ class cpw_resonator(circuit):
 
         if frequency is None: # Input is length
             self.length = length
-            self.C = self.wg.C_m*self.length + Cg + Ck
-            self.L = self.wg.L_m*self.length/(self.n*2*np.pi)**2
+            self.Cr = self.wg.C_m*self.length + Cg + Ck
+            self.Lr = self.wg.L_m*self.length/(self.n*2*np.pi)**2
 
         elif length is None: # Input is frequency
             self.length = self._get_length_(frequency*length_f, Cg + Ck, n = n) 
-            self.L = self.wg.L_m*self.length/(self.n*2*np.pi)**2
-            self.C = self.wg.C_m*self.length+ Cg + Ck
+            self.Lr = self.wg.L_m*self.length/(self.n*2*np.pi)**2
+            self.Cr = self.wg.C_m*self.length+ Cg + Ck
             
         else:
             return None
-        self.R = wg.Z_0k/(self.wg.alpha*self.length*self.length_f)
+        self._R_ = wg.Z_0k/(self.wg.alpha*self.length*self.length_f)
 
         self.qmodel = scq.Oscillator(
             E_osc=self.f0()*1e-9,
@@ -257,6 +265,12 @@ class cpw_resonator(circuit):
         if Cin == None:
             Cin = self.Cin
         return self.f0()/self.Q_ext(Cin = Cin)
+    
+    def C(self):
+        return self.Cr
+
+    def L(self):
+        return self.Lr
 
 #
 #    [1] Ghione 1984, doi: 10.1049/el:19840120

@@ -26,9 +26,9 @@ class sc_metal:
         return self.sc_gap()/e_0
     
 
-class transmon:
+class transmon(circuit):
     '''
-    Single Jucntion Qubit
+    Single Junction Qubit
         R_j:float=0.0,       # Total junction resistance
         E_j:float=0.0,
         C_sum:float=67.5e-15,
@@ -42,6 +42,7 @@ class transmon:
         T = 20.e-3,
         kappa = 0.0,
         ng =0.3 #Offset Charge
+    NOTE: Energies are in E/h (not E/hbar)
     '''
     def __init__(self,
                  R_j:float=0.0,       # Total junction resistance
@@ -81,7 +82,7 @@ class transmon:
         self.Cr = res_ro.C
         self.res_ro = res_ro
         
-        self.qmodel = scq.Transmon(  EJ=self.Ej()/1e9,
+        self.qmodel = scq.Transmon( EJ=self.Ej()/1e9,
                                     EC=self.Ec()/1e9,
                                     ng=ng,
                                     ncut=ncut,
@@ -93,10 +94,20 @@ class transmon:
             self.kappa = self.res_ro.kappa_ext()
         else:
             self.kappa = kappa
+        self._C_ = C_sum
+
+    def L(self, phi = 0.):
+        '''
+        RLC circuit modcel josephson inductance for the ground state
+        '''
+        from numpy import cos
+        return h_0/(2*e_0*self.Ic())*1/(cos(phi))
+        #return (self.f01()*sqrt(self.C()))**-2
 
     def Ic(self):
         self.mat.T = self.T
         return pi*self.mat.sc_gap()/(2*e_0*(self.R_j+self.R_jx))*tanh(self.mat.sc_gap()/(2*k_B*self.T))
+    #https://www.pearsonhighered.com/assets/samplechapter/0/1/3/2/0132627426.pdf page 162
     
     def Ec(self):
         '''
@@ -111,7 +122,7 @@ class transmon:
         return self.Ic()/(2*e_0)/(2*pi)
 
     def g01(self):
-        return e_0*self.C_g/(self.C_g+self.C_sum)*sqrt(2*self.res_ro.f0()/(h_0*self.res_ro.C))
+        return e_0*self.C_g/(self.C_g+self.C_sum)*sqrt(2*self.res_ro.f0()/(h_0*self.res_ro.C()))
     
     def chi(self):
         '''
@@ -139,6 +150,12 @@ class transmon:
         gamma_1 = 1/T1
         return self.kappa*self.chi()**2/(gamma_1*(self.kappa**2/4+self.chi()**2))
     
+    def f0(self):
+        return self.f01()
+    
+    def C(self):
+        return self.C_sum
+
     def T1_max(self):
         '''
         Higher bound of T1
