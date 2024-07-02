@@ -1,3 +1,6 @@
 
 *.pyc
 *.pyc
+*.pyc
+/src/qfoundry/qfoundry/__pycache__
+/src/qfoundry/qfoundry/__pycache__
