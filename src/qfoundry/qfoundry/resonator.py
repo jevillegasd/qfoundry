@@ -45,7 +45,7 @@ class cpw:
                         width: float,    #[length], microstrip width in um
                         spacing: float,  #[length], Space from ground plane in um
                         thickness: float = 0.1,
-                        rho: float = 2.06e-3,
+                        rho: float = 2.06e-9, #normal state resisitivity of the thin film
                         tc: float= 1.23e-3,
                         alpha: float = 2.4e-2):   # attenuation cofficient m^-1 
         self.w = width #to match [1]
@@ -67,7 +67,7 @@ class cpw:
         self.eta_0 = mu_0*c #~120*np.pi
 
     def LCR_f(L,C,R) -> float:
-        return 1/np.sqrt(L*C)/2*np.pi
+        return 1/np.sqrt(L*C)/(2*np.pi)
 
     def capacitances(self,w:float,s:float,h:float,eps_r:float):
         '''
@@ -196,13 +196,13 @@ class cpw_resonator(circuit):
 
         if frequency is None: # Input is length
             self.length = length
-            self.Cr = self.wg.C_m*self.length + Cg + Ck
-            self.Lr = self.wg.L_m*self.length/(self.n*2*np.pi)**2
+            self._C_ = self.wg.C_m*self.length + Cg + Ck
+            self._L_ = self.wg.L_m*self.length/(self.n*2*np.pi)**2
 
         elif length is None: # Input is frequency
             self.length = self._get_length_(frequency*length_f, Cg + Ck, n = n) 
-            self.Lr = self.wg.L_m*self.length/(self.n*2*np.pi)**2
-            self.Cr = self.wg.C_m*self.length+ Cg + Ck
+            self._L_ = self.wg.L_m*self.length/(self.n*2*np.pi)**2
+            self._C_ = self.wg.C_m*self.length+ Cg + Ck
             
         else:
             return None
@@ -267,10 +267,10 @@ class cpw_resonator(circuit):
         return self.f0()/self.Q_ext(Cin = Cin)
     
     def C(self):
-        return self.Cr
+        return self._C_
 
     def L(self):
-        return self.Lr
+        return self._L_
 
 #
 #    [1] Ghione 1984, doi: 10.1049/el:19840120
