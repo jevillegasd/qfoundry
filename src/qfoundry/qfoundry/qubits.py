@@ -126,9 +126,9 @@ class transmon(circuit):
     
     def chi(self):
         '''
-        Dispersive shift
+        Lamb Dispersive shift (~Stark Shift /2)
         '''
-        return -(self.g01()**2)/(self.Delta)*(1/(1+self.Delta/self.alpha))
+        return -((self.g01()**2/self.Delta)) #* 1/(1+self.Delta/self.alpha)
 
     def f01(self):
         '''

@@ -257,7 +257,9 @@ class cpw_resonator(circuit):
     def kappa_ext(self):
         return self.fwhm()
     
-    def Q_ext(self, Cin):
+    def Q_ext(self, Cin=None):
+        if Cin is None:
+            Cin = self.Cin
         return np.pi/(4*(self.wg.Z_0*2*np.pi*self.f0()*Cin)**2)
         #return (1+(wr*C_k*R_L)**2)*(C+C_k))/(wr*C_k**2*R_L)  R_L=50 Ohm
     

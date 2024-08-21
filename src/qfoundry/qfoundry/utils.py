@@ -23,7 +23,7 @@ def g_hm(Cg, hm0:circuit, hm1:circuit):
 def coupling(Ck,C1,C2,w1,w2):
     '''
     The standard formula for capacitive coupling between harmonic modes [1].
-    The entries w1 and w2 radian frequencies.
+    The entries w1 and w2 in radian frequencies.
     [1] E. Jeffrey, Phys. Rev. Lett. 112, 190504, https://arxiv.org/pdf/1401.0257
     '''
     return 0.5*Ck/(sqrt(C1*C2))*sqrt(w1*w2)
