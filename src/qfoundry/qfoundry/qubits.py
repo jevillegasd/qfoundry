@@ -109,9 +109,14 @@ class transmon(circuit):
         return pi*self.mat.sc_gap()/(2*e_0*(self.R_j+self.R_jx))*tanh(self.mat.sc_gap()/(2*k_B*self.T))
     #https://www.pearsonhighered.com/assets/samplechapter/0/1/3/2/0132627426.pdf page 162
     
+    def Lj(self, phi=0):
+        from numpy import cos, pi
+        phi_0 = h_0/e_0
+        return phi_0 / (2*pi*self.Ic()*cos(phi))
+
     def Ec(self):
         '''
-        Capacitive energy
+        Capacitive energy 
         '''
         return e_0**2/(2*self.C_sum)/h_0
     
@@ -165,7 +170,7 @@ class transmon(circuit):
     def __str__(self):
             return ("Ec = \t%3.2f MHz \nEj = \t%3.2f GHz \nEJ/EC= \t%1.2f\nf_01 = \t%3.2f GHz \n" \
                 "f_02 = \t%3.2f GHz \ng_01 = \t%3.2f MHz \nchi =\t%3.2f MHz \nT1_max =\t%3.2f us\n" \
-                "alpha =\t%3.2f MHz"%(
+                "alpha =\t%3.2f MHz\nL_jj =\t%3.2f nH\n"%(
                 self.Ec()*1e-6, 
                 self.Ej()*1e-9, 
                 self.Ej()/self.Ec(),
@@ -174,7 +179,8 @@ class transmon(circuit):
                 self.g01()*1e-6,  
                 self.chi()*1e-6,
                 self.T1_max()*1e6,
-                self.alpha*1e-6
+                self.alpha*1e-6,
+                self.Lj(0)*1e9
                 )
             )
                 
