@@ -47,7 +47,10 @@ class cpw:
                         thickness: float = 0.1,
                         rho: float = 2.06e-9, #normal state resisitivity of the thin film
                         tc: float= 1.23e-3,
-                        alpha: float = 2.4e-2):   # attenuation cofficient m^-1 
+                        alpha: float = 2.4e-2, # attenuation cofficient m^-1 "
+                        cm_x: float = 0.0,# Capacitance per unit length correction
+                        lm_x: float = 0.0, # Inductance per unit length correction
+                        ):   
         self.w = width #to match [1]
         self.s = spacing #to match [1]
         self.d = thickness #to match [1]
@@ -59,7 +62,8 @@ class cpw:
 
         self.L_m, self.L_k = self.inductances(self.w,self.s,self.d,self.h, rho, tc)
         self.C_m, self.epsilon_e = self.capacitances(self.w,self.s,self.h,epsilon_r)
-        self.L = self.L_m+self.L_k
+        self.C_m += cm_x
+        self.L = self.L_m+self.L_k + lm_x
 
         self.Z_0 = np.sqrt(self.L_m/self.C_m)          #Equation (1) in [1]
         self.Z_0k = np.sqrt(self.L/self.C_m)
@@ -182,22 +186,31 @@ class circuit():
     def L(self):
         return self._L_
 
+
 class cpw_resonator(circuit):
     '''
     A coplanar waveguide resonator
+    Inputs:
+        wg: waveguide
+        length: float, length of the resonator
+        frequency: float, frequency of the resonator
+        length_f: int, length factor: 4: quarter wavelength resonator
+        n: int, mode number
+        Cg: float, tip coupling capacitance (usually to a qubit)
+        Ck: float, inpiut coupling capacitance (typically to a feedline)
     '''
 
     
     def __init__(self, wg: cpw, length:float = None, frequency: float = None, length_f:int = 2, n:int =1, Cg:float = 0.0, Ck:float = 0.0):
         self.wg = wg
-        self.length_f = length_f #length factor: 4: quarter wavelength resonator
+        self.length_f = length_f #length factor: 4: quarter wavelength resonator, 2: half wavelength resonator
         self.n = n #mode number   
         self.Cin = Ck
 
         if frequency is None: # Input is length
             self.length = length
             self._C_ = self.wg.C_m*self.length + Cg + Ck
-            self._L_ = self.wg.L_m*self.length/(self.n*2*np.pi)**2
+            self._L_ = self.wg.L*self.length/(self.n*2*np.pi)**2
 
         elif length is None: # Input is frequency
             self.length = self._get_length_(frequency*length_f, Cg + Ck, n = n) 
@@ -234,22 +247,25 @@ class cpw_resonator(circuit):
     def Z_TL(self, f:np.array):
         fn = self.w0()/(2*np.pi)
         Z = self.wg.Z_0k/(self.wg.alpha*self.length + 1j*np.pi*(f-fn)/fn)
-        return Z/Z.max()
+        return Z
     
     def Zp(self, f):
         return self._Zp_(f, self.length_f)
-
+        
     def Z(self, f):
         '''
             frequency domain numeric transfer function (impedance), this overload the class:circuits impedance.
         '''
         return self.Z_TL(f) # Overload this function from the circuit class
     
+    def impedance(self):
+        return self.Z_TL(self.f0())
+    
     def w0(self):
         return 2*np.pi*self.f0()
     
     def f0(self):
-        return self._f0_()/self.length_f #__f0__() calculates the fundamental LC resonance of the RCL circuit
+        return self._f0_()/(self.length_f) #__f0__() calculates the fundamental LC resonance of the RCL circuit
     
     def kappa(self):
         return self.f0()/self.Q()
@@ -257,7 +273,9 @@ class cpw_resonator(circuit):
     def kappa_ext(self):
         return self.fwhm()
     
-    def Q_ext(self, Cin):
+    def Q_ext(self, Cin=None):
+        if Cin is None:
+            Cin = self.Cin
         return np.pi/(4*(self.wg.Z_0*2*np.pi*self.f0()*Cin)**2)
         #return (1+(wr*C_k*R_L)**2)*(C+C_k))/(wr*C_k**2*R_L)  R_L=50 Ohm
     
