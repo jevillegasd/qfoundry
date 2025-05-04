@@ -4,3 +4,9 @@
 *.pyc
 /src/qfoundry/qfoundry/__pycache__
 /src/qfoundry/qfoundry/__pycache__
+*.pyc
+src/qfoundry/qfoundry/__pycache__/resonator.cpython-311.pyc
+src/qfoundry/qfoundry/__pycache__/qubits.cpython-311.pyc
+src/qfoundry/qfoundry.egg-info/top_level.txt
+src/qfoundry/qfoundry.egg-info/SOURCES.txt
+src/qfoundry/qfoundry.egg-info/dependency_links.txt

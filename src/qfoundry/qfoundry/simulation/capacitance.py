@@ -124,6 +124,115 @@ class coplanar_capacitor:
 
 
 
+
+class box_capacitor:
+    '''
+    A coplanar capacitor whith an outer conductive layer surrounding an inner one.
+    Simulates in 3D a coplanar capacitor.
+    '''
+    def __init__(self, 
+                 width_in:float,
+                 width_out:float,
+                 length:float,
+                 spacing:float,
+                 thickness:float = 1,
+                 substrate_heigth:float = 550,
+                 mesh_size:float=0.5,
+                 padding:float = 50.,
+                 dV:float=1,
+                 dielectric_epsilon=11.7,
+                 units = units_um
+                 ):   
+        self.w1 = width_in
+        self.w2 = width_out
+        self.l = length
+        self.s = spacing
+        self.t = thickness
+        self.h = substrate_heigth
+        self.mesh_size = mesh_size
+        self.dV = dV
+        self.epsr = dielectric_epsilon
+        self.basis_u = None
+        self.u = None 
+        self.basis_epsilon = None
+        self.epsilon = None
+        self.units = units
+        self.padding= padding
+
+        mesh, polygons = __coplanar_capacitor_mesh__(
+            width = width,
+            separation=spacing,
+            thickness=thickness,
+            substrate_heigth = substrate_heigth,
+            mesh_size = self.mesh_size,
+            padding = self.padding
+        )
+        self.polygons = polygons
+        self.mesh = mesh
+    
+    def refine(self):
+        self.mesh = self.mesh.refined(1)
+
+    def capacitance(self):
+        from scipy.constants import epsilon_0 as eps0
+        if self.basis_u == None:
+            self.basis_u, self.u, self.basis_epsilon, self.epsilon = self.potential()
+
+        @Functional(dtype=complex)
+        def W(w):
+            return 0.5 * w["epsilon"] * dot(w["u"].grad, w["u"].grad)
+    
+        C = (2* W.assemble(
+                self.basis_u,
+                epsilon=self.basis_epsilon.interpolate(self.epsilon),
+                u=self.basis_u.interpolate(self.u),
+            )
+            / self.dV**2 * eps0 *self.units  # Returns in F/m
+        )
+        return C
+
+    def potential(self):
+        basis_epsilon = Basis(self.mesh, ElementTriP0())
+        epsilon = basis_epsilon.ones()
+
+        epsilon[basis_epsilon.get_dofs(elements=("dielectric"))] = self.epsr
+
+        basis_u, u = solve_coulomb(
+            basis_epsilon,
+            epsilon,
+            {
+                "left_plate___dielectric": self.dV/2,
+                "left_plate___air": self.dV/2,
+                "rigth_plate___dielectric": -self.dV/2,
+                "rigth_plate___air": -self.dV/2,
+            },
+        )
+        return basis_u, u, basis_epsilon, epsilon
+
+    def plot_potential(self, ax = None): #This is generating very large images
+        if ax == None:
+            fig, ax = plt.subplots()
+        self.basis_u, self.u, self.basis_epsilon, self.epsilon = self.potential()
+        for subdomain in self.basis_epsilon.mesh.subdomains.keys() - {"gmsh:bounding_entities"}:
+            self.basis_epsilon.mesh.restrict(subdomain).draw(ax=ax, boundaries_only=True)
+        self.basis_u.plot(self.u, ax=ax, shading="flat", colorbar=True)
+        return plt.show()
+
+    def plot_polygons(self):
+        pass
+
+    def plot_mesh(self):
+        self.mesh.draw().show()
+
+    def plot_domains(self):
+        return plot_d(self.mesh)
+    
+    def plot_subdomain_boundaries(self):
+        return plot_sb(self.mesh)
+
+
+
+
 # Auxiliary Functions
 def __coplanar_capacitor_mesh__(
     width:float = 20,
@@ -201,4 +310,3 @@ def __coplanar_capacitor_mesh__(
     )
 
     return mesh, [left_plate, right_plate, dielectric, air]
-
