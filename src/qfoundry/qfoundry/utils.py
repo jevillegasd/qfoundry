@@ -4,6 +4,7 @@ from scipy.constants import h
 from numpy import sqrt
 from qfoundry.resonator import circuit
 
+
 def Cs_to_E(C):
     return e**2/(2*C)/h
 

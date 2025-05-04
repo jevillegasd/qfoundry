@@ -51,7 +51,6 @@ class transmon(circuit):
                  C_g:float  =21.7e-15,
                  C_k:float  =36.7e-15,
                  C_xy:float =0.e-15,
-                 C_in:float =8.98e-15,
                  res_ro     = cpw_resonator(cpw(11.7,0.1,12,6, alpha=2.4e-2),frequency = 7e9, length_f = 2),    #Readout Resonator
                  R_jx:float = 0.0,       # Resistance correction factor
                  mat = sc_metal(1.14),
@@ -78,7 +77,6 @@ class transmon(circuit):
         self.C_g = C_g
         self.C_k = C_k
         self.C_xy = C_xy
-        self.C_in = C_in
         self.Cr = res_ro.C
         self.res_ro = res_ro
         
@@ -122,13 +120,19 @@ class transmon(circuit):
         return self.Ic()/(2*e_0)/(2*pi)
 
     def g01(self):
-        return e_0*self.C_g/(self.C_g+self.C_sum)*sqrt(2*self.res_ro.f0()/(h_0*self.res_ro.C()))
+        '''
+        Coupling strength between the qubit and the resonator
+        '''
+        
+        return self.C_g/sqrt(self.res_ro.C()*self.C_sum)* sqrt(self.res_ro.f0()*self.f01())
+        #return e_0*self.C_g/(self.C_g+self.C_sum)*sqrt(2*self.res_ro.f0()/(h_0*self.res_ro.C()))
     
     def chi(self):
         '''
         Dispersive shift
+        https://arxiv.org/pdf/1904.06560 eq. 146
         '''
-        return -(self.g01()**2)/(self.Delta)*(1/(1+self.Delta/self.alpha))
+        return (self.g01()**2)/(self.Delta)*(1/(1+self.Delta/self.alpha))
 
     def f01(self):
         '''
@@ -137,11 +141,18 @@ class transmon(circuit):
         return self.qmodel.E01()*1e9
         #return ((8*self.Ej()*self.Ec())**0.5-self.Ec())
     
+    def f12(self):
+        '''
+        Qubit 12 frequency
+        '''
+        return (self.f01()+self.alpha)
+    
+
     def f02(self):
         '''
-        Qubit 02 frequency
+        Qubit 02/2 frequency
         '''
-        return (self.f01()*2+self.alpha)/2
+        return (self.f01()+self.f12())
     
     def SNR(self, T1 = 100e-6):
         '''

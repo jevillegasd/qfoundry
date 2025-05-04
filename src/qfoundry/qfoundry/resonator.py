@@ -1,7 +1,8 @@
-from scipy.constants import c, mu_0, epsilon_0
+from scipy.constants import c, epsilon_0, m_e, hbar, e, k, pi, Avogadro
 import numpy as np
 from scipy import special as sp
 import scqubits as scq
+
 
 # def LCR_f(L: float,C:float,R:float=0.0) -> float:
 #     return 1/np.sqrt(L*C)/2*np.pi
@@ -12,6 +13,12 @@ import scqubits as scq
 # def resonator_length(resonator_freq: float, epsilon_e: float, length_factor: int=4) -> float:
 #     #quarter_wave resonator
 #     return ((c)/((epsilon_e**.5)))*(1/(length_factor*resonator_freq))
+
+Avogadro = 6.022e23 #atoms per mol
+Al_mass = 26.98e-3 #kg/mol
+Al_density = 2.7e3 #kg/m^3
+n_Al = Avogadro*Al_density/Al_mass # atoms / m^3
+mu_0 = 4*np.pi*1e-7 # H/m
 
 class cpw:
     """ 
@@ -41,24 +48,42 @@ class cpw:
 
     """
     def __init__(self,    epsilon_r: float,       #Dielectric constant of the substrate
-                        height: float,    #[length], substrate's height in um
-                        width: float,    #[length], microstrip width in um
-                        spacing: float,  #[length], Space from ground plane in um
-                        thickness: float = 0.1,
-                        rho: float = 2.06e-9, #normal state resisitivity of the thin film
-                        tc: float= 1.23e-3,
-                        alpha: float = 2.4e-2):   # attenuation cofficient m^-1 
+                        height: float,    #[length], substrate's height in m
+                        width: float,    #[length], microstrip width in m
+                        spacing: float,  #[length], Space from ground plane in m
+                        thickness: float = 100e-9,
+                        rho: float = 2.06e-9, #normal state resisitivity of the thin film 
+                        tc: float= 1.23, #critical temperature in K
+                        alpha: float = 2.4e-2, #attenuation cofficient m^-1
+                        n_s = 3*n_Al, #superconducting electron density in m^-3
+                        T = 20e-3,
+                        cm_x = 0.0e-12, #capacitance corection per unit length in F/m
+                        ):   # temperature in K
+        
+        # if dimensional units are large, assume they are in um
+        if width > 1e-3 or height > 1e-3 or spacing > 1e-3 :
+            width = width*1e-6
+            height = height*1e-6
+            spacing = spacing*1e-6
+            thickness = thickness*1e-6
+
         self.w = width #to match [1]
         self.s = spacing #to match [1]
         self.d = thickness #to match [1]
         self.h = height    
         self.rho_tc = rho
         self.tc = tc
+        
+        # London penetration length alternative        
+        Lambda_0 =np.sqrt(m_e/(mu_0*n_s*e**2)) # London penetration length in m
+        self.Lambda_L = Lambda_0*(1-(T/tc)**4)**(-0.5) # Effective London penetration length in m (https://rashid-phy.github.io/me/pdf/notes/Superconductor_Theory.pdf eq. 24)
+
         self.alpha = alpha # attenuation cofficient in m^-1 
         self.lambda_0 = 1.05e-3*np.sqrt(self.rho_tc/self.tc)    #Cohenrece Length
 
         self.L_m, self.L_k = self.inductances(self.w,self.s,self.d,self.h, rho, tc)
         self.C_m, self.epsilon_e = self.capacitances(self.w,self.s,self.h,epsilon_r)
+        self.C_m += cm_x
         self.L = self.L_m+self.L_k
 
         self.Z_0 = np.sqrt(self.L_m/self.C_m)          #Equation (1) in [1]
@@ -88,7 +113,7 @@ class cpw:
         C_m = 4*epsilon_0*eps_eff*K0/K0p
         return C_m, eps_eff
     
-    def inductances(self,w:float,s:float,d:float,h:float, rho:float= 2.06e-3, tc:float= 1.23e-3):
+    def inductances(self,w:float,s:float,d:float,h:float, rho:float= 2.06e-3, tc:float= 1.23):
         '''
         Calculate normal and kinetic inductances of a CPW
         '''
@@ -110,8 +135,10 @@ class cpw:
         g = A*(-    np.log(d/(4*w)) -   k_0*np.log(d/(4*(w+2*s)))   +   (2*(w+s)/(w+2*s))*np.log(s/(w+s)))
 
         #print g, a, b, c , d
-        l0 = 1.05e-3*np.sqrt(rho/tc) # London penetration  depth
-        L_k = mu_0*(l0**2)/(w*d)*g
+        
+        L_k = mu_0*(self.Lambda_L**2)/((d*w)) # Equation (2) in [1], Qualitatively, in the limit S << W [...] the kinetic contribution reduces to Lk = mu_0*Lambda_L^2/W
+
+        # [1]  10.1063/1.4962172
         return L_m, L_k
     
 
@@ -193,20 +220,26 @@ class cpw_resonator(circuit):
         self.length_f = length_f #length factor: 4: quarter wavelength resonator
         self.n = n #mode number   
         self.Cin = Ck
-
+        R_L = 50
+        
         if frequency is None: # Input is length
             self.length = length
-            self._C_ = self.wg.C_m*self.length + Cg + Ck
-            self._L_ = self.wg.L_m*self.length/(self.n*2*np.pi)**2
+            self._C_ = self.wg.C_m*self.length/2
+            self._L_ = 2*self.wg.L_m*self.length/(self.n*2*np.pi)**2 # https://arxiv.org/pdf/0807.4094 (Wallraff2008) [11]
 
         elif length is None: # Input is frequency
-            self.length = self._get_length_(frequency*length_f, Cg + Ck, n = n) 
-            self._L_ = self.wg.L_m*self.length/(self.n*2*np.pi)**2
-            self._C_ = self.wg.C_m*self.length+ Cg + Ck
-            
+            Cc = (Ck +Cg)/(1+2*np.pi*frequency**2*(Ck+Cg)**2*R_L**2)
+            self.length = self._get_length_(frequency*length_f, Cc*length_f/2, n = n) 
+            self._L_ = 2*self.wg.L_m*self.length/(self.n*2*np.pi)**2 # https://arxiv.org/pdf/0807.4094 (Wallraff2008) [11]
+            self._C_ = self.wg.C_m*self.length/2
         else:
             return None
         self._R_ = wg.Z_0k/(self.wg.alpha*self.length*self.length_f)
+
+        # Correct for the coupling capacitance
+        w = 2*np.pi*self.f0()
+        self._R_ = self._R_ + (1+w**2*(Ck+Cg)**2*R_L**2)/(w**2*(Ck+Cg+1e-20)**2*R_L)
+        self._C_ = self._C_ + (Ck +Cg)/(1+w**2*(Ck+Cg)**2*R_L**2)
 
         self.qmodel = scq.Oscillator(
             E_osc=self.f0()*1e-9,
@@ -257,7 +290,9 @@ class cpw_resonator(circuit):
     def kappa_ext(self):
         return self.fwhm()
     
-    def Q_ext(self, Cin):
+    def Q_ext(self, Cin = None):
+        if Cin == None:
+            Cin = self.Cin
         return np.pi/(4*(self.wg.Z_0*2*np.pi*self.f0()*Cin)**2)
         #return (1+(wr*C_k*R_L)**2)*(C+C_k))/(wr*C_k**2*R_L)  R_L=50 Ohm
     
@@ -276,4 +311,4 @@ class cpw_resonator(circuit):
 #    [1] Ghione 1984, doi: 10.1049/el:19840120
 #    [2] Wanabe 1994, doi: 10.1143/JJAP.33.5708
 #    [3] 
-#
+#   
