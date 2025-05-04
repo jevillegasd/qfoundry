@@ -80,13 +80,12 @@ class transmon(circuit):
         self.Cr = res_ro.C
         self.res_ro = res_ro
         
-        self.qmodel = scq.Transmon( EJ=self.Ej()/1e9,
-                                    EC=self.Ec()/1e9,
+        self.qmodel = scq.Transmon( EJ=self.Ej()/1e9*2*pi,
+                                    EC=self.Ec()/1e9*2*pi,
                                     ng=ng,
                                     ncut=ncut,
                                     truncated_dim=truncated_dim)
         
-        self.alpha = self.qmodel.anharmonicity()*1e9 #-self.Ec()
         self.Delta = abs(self.res_ro.f0()-self.f01())
         if kappa == 0.0:
             self.kappa = self.res_ro.kappa_ext()
@@ -94,6 +93,12 @@ class transmon(circuit):
             self.kappa = kappa
         self._C_ = C_sum
 
+    def alpha(self):
+        '''
+        Anharmonicity
+        '''
+        return self.qmodel.anharmonicity()*1e9/(2*pi)
+    
     def L(self, phi = 0.):
         '''
         RLC circuit modcel josephson inductance for the ground state
@@ -132,20 +137,20 @@ class transmon(circuit):
         Dispersive shift
         https://arxiv.org/pdf/1904.06560 eq. 146
         '''
-        return (self.g01()**2)/(self.Delta)*(1/(1+self.Delta/self.alpha))
+        return (self.g01()**2)/(self.Delta)*(1/(1+self.Delta/self.alpha()))
 
     def f01(self):
         '''
         Qubit 01 frequency
         '''
-        return self.qmodel.E01()*1e9
+        return self.qmodel.E01()/(2*pi)*1e9
         #return ((8*self.Ej()*self.Ec())**0.5-self.Ec())
     
     def f12(self):
         '''
         Qubit 12 frequency
         '''
-        return (self.f01()+self.alpha)
+        return (self.f01()+self.alpha())
     
 
     def f02(self):
@@ -185,7 +190,7 @@ class transmon(circuit):
                 self.g01()*1e-6,  
                 self.chi()*1e-6,
                 self.T1_max()*1e6,
-                self.alpha*1e-6
+                self.alpha()*1e-6
                 )
             )
                 
