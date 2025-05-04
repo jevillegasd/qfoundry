@@ -1,8 +1,8 @@
 setup.py
 qfoundry/__init__.py
-qfoundry/circuit.py
-qfoundry/cpw_resonator.py
+qfoundry/qubits.py
 qfoundry/resonator.py
+qfoundry/utils.py
 qfoundry.egg-info/PKG-INFO
 qfoundry.egg-info/SOURCES.txt
 qfoundry.egg-info/dependency_links.txt
