@@ -8,14 +8,14 @@ from qfoundry.resonator import circuit
 def Cs_to_E(C):
     return e_0**2/(2*C)/h
 
-def Cg_to_E(Cg, C1, C2):
+def Cq_to_E(Cq, C1, C2):
     '''
     Using Vi = (2e/Ci)ni and the Hamiltonian H_int = Hint = CgV1V2
     So that in the perturbative regime, H_int = g_int*n1*n2
-    H_int = 4*e_0**2*Cg/(C1*C2)/h
+    H_int = 4*e_0**2*Cq/(C1*C2)/h
     https://arxiv.org/pdf/1904.06560 (Krantz 2021) eq. 27
     '''
-    return 4*e_0**2*Cg/(C1*C2-Cg**2)/h
+    return 4*e_0**2*Cq/(C1*C2-Cq**2)/h
 
 def cap_coupling(Ck,C1,C2,w1,w2):
     '''
@@ -27,7 +27,7 @@ def cap_coupling(Ck,C1,C2,w1,w2):
 
 def C_to_g(Cg, C_sum, f0,Cr):
     # Wallraff et al. 2004 
-    return e_0*Cg/(Cg+C_sum)*sqrt(2*2*pi*f0/(hbar*Cr))/(2*pi)
+    return e_0*Cg/(Cg+C_sum)*sqrt(2*f0/(h*Cr))
 
 def g_hm(Cg, hm0:circuit, hm1:circuit):
     '''

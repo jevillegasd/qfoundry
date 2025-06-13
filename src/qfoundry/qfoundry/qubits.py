@@ -129,8 +129,8 @@ class transmon(circuit):
         Coupling strength between the qubit and the resonator
         '''
         
-        return self.C_g/sqrt(self.res_ro.C()*self.C_sum)* sqrt(self.res_ro.f0()*self.f01())
-        #return e_0*self.C_g/(self.C_g+self.C_sum)*sqrt(2*self.res_ro.f0()/(h_0*self.res_ro.C()))
+        #return self.C_g/sqrt(self.res_ro.C()*self.C_sum)* sqrt(self.res_ro.f0()*self.f01())
+        return e_0*self.C_g/(self.C_g+self.C_sum)*sqrt(2*self.res_ro.f0()/(h_0*self.res_ro.C()*self.res_ro.length_f))
     
     def chi(self):
         '''
@@ -176,14 +176,15 @@ class transmon(circuit):
         '''
         Higher bound of T1
         '''
-        return (self.Delta)**2/(self.g01()**2*self.kappa)
+        return (self.Delta/self.g01())**2/(self.kappa)
     
     def __str__(self):
-            return ("Ec = \t%3.2f MHz \nEj = \t%3.2f GHz \nEJ/EC= \t%1.2f\nf_01 = \t%3.2f GHz \n" \
+            return ("Ec = \t%3.2f MHz \nEj = \t%3.2f GHz \nIc = \t%3.2f nA \nEJ/EC= \t%1.2f\nf_01 = \t%3.2f GHz \n" \
                 "f_02 = \t%3.2f GHz \ng_01 = \t%3.2f MHz \nchi =\t%3.2f MHz \nT1_max =\t%3.2f us\n" \
                 "alpha =\t%3.2f MHz"%(
                 self.Ec()*1e-6, 
                 self.Ej()*1e-9, 
+                self.Ic()*1e9,
                 self.Ej()/self.Ec(),
                 self.f01()*1e-9,
                 self.f02()*1e-9,      
