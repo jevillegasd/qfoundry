@@ -1,30 +1,12 @@
 from qfoundry.resonator import cpw, circuit, cpw_resonator
-
+from qfoundry.utils import sc_metal, Ic_to_R, R_to_Ic
 import scqubits as scq
 
-from scipy.constants import Boltzmann  as k_B
 from scipy.constants import e  as e_0
 from scipy.constants import Planck  as h_0
+
 from numpy import sqrt, pi, tanh, abs
 
-
-class sc_metal:
-    '''
-        Superconductive metal.
-        Modelled only from its critical temperature.
-    '''
-    def __init__(self, Tc, T=20e-3):
-        self.Tc = 1.14
-
-    def sc_gap(self):
-        if self.T< 0.1:
-            return 1.764*k_B*self.Tc
-        else:
-            return 3.076*k_B*sqrt(1-T/self.Tc)
-        
-    def sc_gap_eV(self):
-        return self.sc_gap()/e_0
-    
 
 class transmon(circuit):
     '''
@@ -42,7 +24,7 @@ class transmon(circuit):
         T = 20.e-3,
         kappa = 0.0,
         ng =0.3 #Offset Charge
-    NOTE: Energies are in E/h (not E/hbar)
+        NOTE: Energies are in E/h (not E/hbar)
     '''
     def __init__(self,
                  R_j:float=0.0,       # Total junction resistance
@@ -53,25 +35,23 @@ class transmon(circuit):
                  C_xy:float =0.e-15,
                  res_ro     = cpw_resonator(cpw(11.7,0.1,12,6, alpha=2.4e-2),frequency = 7e9, length_f = 2),    #Readout Resonator
                  R_jx:float = 0.0,       # Resistance correction factor
-                 mat = sc_metal(1.14),
-                 T = 20.e-3,
+                 mat = sc_metal(1.14, 20e-3),
                  kappa = 0.0,
                  ng =0.3, #Offset Charge
                  ncut = 40,
                  truncated_dim = 10
                  ):
         self.mat = mat
-        self.T = T
-        self.mat.T = T
         self.R_jx = R_jx
 
         if (R_j == 0.0) & (E_j == 0.0):
-            Exception('Either E_j or R_j need to be specified.')
+            Exception('Input Error: Either E_j or R_j need to be specified.')
         elif R_j == 0.0:
-            Ic = E_j*2*e_0*2*pi
-            self.R_j = pi*self.mat.sc_gap()/(2*e_0*Ic)*tanh(self.mat.sc_gap()/(2*k_B*self.T)) - R_jx
+            self.ic = E_j*2*e_0*2*pi
+            self.R_j = Ic_to_R(self.ic, mat=mat, R_jx=R_jx)
         else:
-            self.R_j = R_j     
+            self.R_j = R_j
+            self.ic = R_to_Ic(self.R_j-self.R_jx , mat=mat)     
             
         self.C_sum = C_sum
         self.C_g = C_g
@@ -79,7 +59,10 @@ class transmon(circuit):
         self.C_xy = C_xy
         self.Cr = res_ro.C
         self.res_ro = res_ro
-        
+        self.ng = ng
+        self.ncut = ncut
+        self.truncated_dim = truncated_dim
+
         self.qmodel = scq.Transmon( EJ=self.Ej()/1e9*2*pi,
                                     EC=self.Ec()/1e9*2*pi,
                                     ng=ng,
@@ -108,9 +91,14 @@ class transmon(circuit):
         #return (self.f01()*sqrt(self.C()))**-2
 
     def Ic(self):
-        self.mat.T = self.T
-        return pi*self.mat.sc_gap()/(2*e_0*(self.R_j+self.R_jx))*tanh(self.mat.sc_gap()/(2*k_B*self.T))
-    #https://www.pearsonhighered.com/assets/samplechapter/0/1/3/2/0132627426.pdf page 162
+        return self.ic
+    
+    
+    def Rj(self):
+        '''
+        Total junction resistance
+        '''
+        return self.R_j + self.R_jx
     
     def Ec(self):
         '''
@@ -195,4 +183,50 @@ class transmon(circuit):
                 )
             )
                 
-                                                
+
+class tunable_transmon(transmon):
+    '''
+    Tunable Transmon Qubit
+    '''
+    def __init__(self, flux = 0.0,d = 1, *args, **kwargs):
+        self.flux = flux
+        self.d = d # Assymetry parameter
+
+        super().__init__(*args, **kwargs)
+
+        self.qmodel = scq.TunableTransmon( 
+            EJmax=self.Ej()/1e9*2*pi,
+            EC=self.Ec()/1e9*2*pi,
+            d=self.d,
+            flux=self.flux,
+            ng=self.ng,
+            ncut=self.ncut,
+            truncated_dim=self.truncated_dim
+        )
+    
+    def Ej1(self):
+        '''
+        Josephson energy for the first junction
+        '''
+        return self.Ej() * (1 + self.d )/2
+    
+    def Ej2(self):
+        '''
+        Josephson energy for the second junction
+        '''
+        return self.Ej() * (1 - self.d )/2
+    
+    def Ic1(self):
+        '''
+        Critical current for the first junction
+        '''
+        return self.Ic() * (1 + self.d )/2
+    
+    def Ic2(self):
+        '''
+        Critical current for the second junction
+        '''
+        return self.Ic() * (1 - self.d )/2
+    
+    def __str__(self):
+        return super().__str__() + "\nFlux = \t%3.2f"%self.flux

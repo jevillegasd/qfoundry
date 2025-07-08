@@ -1,31 +1,132 @@
 # Constants and parameters for the PDK
+class DesignRule():
+    """Design rule class containing constants and parameters for the design rules."""
+    def __init__(self, name, description, value):
+        """Initialize the DesignRule with parameters."""
+        self.name = name
+        self.description = description
+        self.value = value
+    def __str__(self):
+        """String representation of the DesignRule."""
+        return f"{self.name}: {self.description} = {self.value}"
+    
+    def __repr__(self):
+        """String representation of the DesignRule for debugging."""
+        return f"DesignRule(name={self.name}, description={self.description}, value={self.value})"
 
-epsilon_r = 11.6883144      #Intrinsic Silicon modified for model
+## Deafult design rules
+DR_MIN_WAVEGUIDE_WIDTH = DesignRule(
+        name="DR_MIN_WAVEGUIDE_WIDTH",
+        description="Minimum waveguide width",
+        value= 3e-6
+    )
 
-substrate_h = 550e-6      #[μm]
-substrate_rho = 1.0E-10  #Substrate resistivity [Ω*cm]
+DR_MIN_WAVEGUIDE_GAP = DesignRule(
+        name="DR_MIN_WAVEGUIDE_GAP",
+        description="Minimum waveguide gap",
+        value= 1e-6 
+    )
 
-'''Coplanar Waveguide parameters'''
-cpw_w:float = 15e-6         #[μm] Waveguide width
-cpw_g = 7.5e-6        #[μm] Waveguide gap
-cpw_t = 0.1e-6         #[μm] Waveguide thickness
-alpha = 3.165e-3          # Superconductive Loss tangent
+DR_MIN_JUCNTION_WIDTH  = DesignRule(
+        name="DR_MIN_JUCNTION_WIDTH",
+        description="Minimum jucntion width tckness",
+        value= 100e-9
+    )
 
-'''Josephson Junction parameters'''
-jj_rhort   = 0.535244811537077E-05     # Josephson Junction R.T. resistivity Ohm*m^2
-jj_R0      = 4.119856e3                # R.T. Contact probing correction
-jj_rhox    = 0                  # Josephson Junction resistivity correction (to match measured qubit Ej)
-jj_gammax  = 4.513E-07          # Josephson Junction Capacitance per unit area correction 
+DR_MIN_JUCNTION_CURRENT = DesignRule(
+        name="DR_MIN_JUCNTION_CURRENT",
+        description="Minimum jucntion current",
+        value= 9.0e-9
+    )
+
+DR_MAX_JUCNTION_CURRENT = DesignRule(
+        name="DR_MAX_JUCNTION_CURRENT",
+        description="Maximum jucntion current",
+        value= 90e-9
+    )
+
+DR_DICING_MARKERS_SPACING = DesignRule(
+        name="DR_DICING_MARKERS_SPACING",
+        description="Spacing between dicing markers",
+        value= 80e-6
+    )
 
 
-# Resonator model corrections
-C_mx = 0            # Waveguide capacitance per unit length correction
-C_x = 0.81e-15      # Capacitance correction (from measurements modelling)
-C_b = 0.434e-15     # Capacitance per airbridge
-C_k = 2.25e-15      # Coupling between resonator and feedline.
-C_rg = 0.0          # Capacitance between resonator and ground plane at the qubit coupling point.
+class PDK:
+    def __init__(self):
+        """Initialize the PDK with parameters."""
+        self.epsilon_r = 11.6883144      #Intrinsic Silicon modified for model
+
+        self.substrate_h = 550e-6      #[μm]
+        self.substrate_rho = 1.0E-10  #Substrate conductivity [1/Ω*cm]
+
+        '''Coplanar Waveguide parameters'''
+        self.cpw_w = 15e-6         #[μm] Waveguide width
+        self.cpw_g = 7.5e-6        #[μm] Waveguide gap
+        self.cpw_t = 0.1e-6         #[μm] Waveguide thickness
+        self.alpha = 3.165e-3          # Superconductive Loss tangent
+
+        '''Josephson Junction parameters'''
+        self.jj_rhort   = 0.535244811537077E-05     # Josephson Junction R.T. resistivity Ohm*m^2
+        self.jj_R0      = 4.119856e3                # R.T. Contact probing correction
+        self.jj_rhox    = 0                  # Josephson Junction resistivity correction (to match measured qubit Ej)
+        self.jj_gammax  = 4.513E-07          # Josephson Junction Capacitance per unit area correction
 
 
-# rho as a property
-def jj_rho():
-    return (jj_rhort + jj_rhox)*1e-4 # Convert to Ohm*m^2
+        # Resonator model corrections
+        self.C_mx = 0            # Waveguide capacitance per unit length correction
+        self.C_x = 0.81e-15      # Capacitance correction (from measurements modelling)
+        self.C_b = 0.434e-15     # Capacitance per airbridge
+        self.C_k = 2.25e-15      # Coupling between resonator and feedline.
+        self.C_rg = 0.0          # Capacitance between resonator and ground plane at the qubit coupling point.
+
+        self.design_rules = {
+            "DR_MIN_WAVEGUIDE_WIDTH": DR_MIN_WAVEGUIDE_WIDTH,
+            "DR_MIN_WAVEGUIDE_GAP": DR_MIN_WAVEGUIDE_GAP,
+            "DR_MIN_WAVEGUIDE_WIDTH": DR_MIN_WAVEGUIDE_WIDTH,
+        }
+
+    def __str__(self):
+        """String representation of the QW_PDK."""
+        return f"QW_PDK(epsilon_r={self.epsilon_r}, substrate_h={self.substrate_h}, substrate_rho={self.substrate_rho}, cpw_w={self.cpw_w}, cpw_g={self.cpw_g}, cpw_t={self.cpw_t}, alpha={self.alpha})"
+    
+    def __repr__(self):
+        """String representation of the QW_PDK for debugging."""
+        return f"QW_PDK(epsilon_r={self.epsilon_r}, substrate_h={self.substrate_h}, substrate_rho={self.substrate_rho}, cpw_w={self.cpw_w}, cpw_g={self.cpw_g}, cpw_t={self.cpw_t}, alpha={self.alpha})"
+    
+    
+    
+class QW_PDK(PDK):
+    """QW_PDK class containing constants and parameters for the QW design kit."""
+
+    def __init__(self):
+        """Initialize the QW_PDK with parameters from the PDK class."""
+        super().__init__()
+
+        # QW_PDK specific parameters
+        self.substrate_h = 525e-6       # [μm]
+        self.epsilon_r = 12.07          # Intrinsic Silicon modified for model
+        self.substrate_rho = 1/1e4      # Substrate conductivity [1/Ω*cm]
+        self.Lk = 0.0                   # Metal layer kinetic inductance [pH//□]
+        self.cpw_t = 0.2e-6         #[μm] Waveguide thickness
+
+        DR_MIN_FEATURE_SIZE  = DesignRule(
+            name="DR_MIN_FEATURE_SIZE",
+            description="Minimum junction width thickness",
+            value= 3e-6
+        )
+        DR_DICING_MARKERS_SPACING = DesignRule(
+            name="DR_DICING_MARKERS_SPACING",
+            description="Spacing between dicing markers",
+            value= 80e-6
+        )
+        self.design_rules["DR_MIN_WAVEGUIDE_WIDTH"] = DR_MIN_FEATURE_SIZE
+        self.design_rules["DR_DICING_MARKERS_SPACING"] = DR_DICING_MARKERS_SPACING
+
+
+    def get_design_rule(self, name):
+        """Get a design rule by its name."""
+        return self.design_rules.get(name, None)
+    
+    
+# Example design rules

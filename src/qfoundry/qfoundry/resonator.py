@@ -37,11 +37,17 @@ class cpw:
         thickness: float = 0.1
             Superconductive metal layer thickness
         rho: float = 2.06e-3
-            s
+            normal state resisitivity of the thin film 
         tc: float= 1.23e-3
-            s
+            critical temperature in K
         alpha: float = 2.4e-4):   
             attenuation cofficient m^-1 
+        n_s = 3*n_Al
+            superconducting electron density in m^-3
+        T = 20e-3
+            temperature in K
+        cm_x = 0.0e-12
+            capacitance corection per unit length in F/m
 
     Methods
     -------
