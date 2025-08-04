@@ -116,10 +116,12 @@ class transmon(circuit):
         '''
         Coupling strength between the qubit and the resonator
         '''
-        
-        #return self.C_g/sqrt(self.res_ro.C()*self.C_sum)* sqrt(self.res_ro.f0()*self.f01())
-        return e_0*self.C_g/(self.C_g+self.C_sum)*sqrt(2*self.res_ro.f0()/(h_0*self.res_ro.C()*self.res_ro.length_f))
-    
+        w_r = self.res_ro.f0()*2*pi
+        hbar = h_0/(2*pi)
+        C_r:cpw_resonator  = self.res_ro.C()
+
+        return e_0*self.C_g/(self.C_g+self.C_sum)*sqrt(2*self.res_ro.f0()/(h_0*C_r)) 
+
     def chi(self):
         '''
         Dispersive shift
