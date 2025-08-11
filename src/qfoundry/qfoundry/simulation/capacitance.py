@@ -1,42 +1,51 @@
 from scipy.constants import c, mu_0, epsilon_0
 import numpy as np
 
-import shapely
-from meshwell.model import Model
-from meshwell.polysurface import PolySurface
-from femwell.coulomb import solve_coulomb
-from femwell.visualization import plot_domains as plot_d
-from femwell.visualization import plot_subdomain_boundaries as plot_sb
-from skfem import Basis, ElementDG, ElementTriP0, Functional, adaptive_theta
-from skfem.helpers import dot
-from skfem.io.meshio import from_meshio
-import matplotlib.pyplot as plt
-# Think of migrating to use only SCIKITFEM (skfem) 
+try:  # optional heavy deps
+    import shapely
+    from meshwell.model import Model
+    from meshwell.polysurface import PolySurface
+    from femwell.coulomb import solve_coulomb
+    from femwell.visualization import plot_domains as plot_d
+    from femwell.visualization import plot_subdomain_boundaries as plot_sb
+    from skfem import Basis, ElementDG, ElementTriP0, Functional, adaptive_theta
+    from skfem.helpers import dot
+    from skfem.io.meshio import from_meshio
+    import matplotlib.pyplot as plt
 
-'''
+    _SIM_DEPS_OK = True
+except Exception as _exc:  # noqa: N816
+    _SIM_DEPS_OK = False
+    _SIM_IMPORT_ERROR = _exc
+# Think of migrating to use only SCIKITFEM (skfem)
+
+"""
 Simulation of capacitances using the FEMWELL Module 
-'''
+"""
 units_mm = 1e-3
 units_um = 1e-6
 units_nm = 1e-9
 
+
 class coplanar_capacitor:
-    '''
+    """
     A coplanar capacitor
     Simulates a coplanar capacitor cross section. The final capacitance is calculated
     as the capacitance per length times the total length of the capacitor.
-    '''
-    def __init__(self, 
-                 width:float,
-                 spacing:float,
-                 thickness:float = 1,
-                 substrate_heigth:float = 550,
-                 mesh_size:float=0.5,
-                 padding:float = 50.,
-                 dV:float=1,
-                 dielectric_epsilon=11.7,
-                 units = units_um
-                 ):   
+    """
+
+    def __init__(
+        self,
+        width: float,
+        spacing: float,
+        thickness: float = 1,
+        substrate_heigth: float = 550,
+        mesh_size: float = 0.5,
+        padding: float = 50.0,
+        dV: float = 1,
+        dielectric_epsilon=11.7,
+        units=units_um,
+    ):
         self.w = width
         self.s = spacing
         self.t = thickness
@@ -45,41 +54,51 @@ class coplanar_capacitor:
         self.dV = dV
         self.epsr = dielectric_epsilon
         self.basis_u = None
-        self.u = None 
+        self.u = None
         self.basis_epsilon = None
         self.epsilon = None
         self.units = units
-        self.padding= padding
+        self.padding = padding
 
+        if not _SIM_DEPS_OK:
+            raise ImportError(
+                "qfoundry simulation extras are not installed. Install with: pip install 'qfoundry[simulation]'"
+            ) from _SIM_IMPORT_ERROR
+
+        # Build 2D cross-section mesh for coplanar capacitor
         mesh, polygons = __coplanar_capacitor_mesh__(
-            width = width,
+            width=width,
             separation=spacing,
             thickness=thickness,
-            substrate_heigth = substrate_heigth,
-            mesh_size = self.mesh_size,
-            padding = self.padding
+            substrate_heigth=substrate_heigth,
+            mesh_size=self.mesh_size,
+            padding=self.padding,
         )
         self.polygons = polygons
         self.mesh = mesh
-    
+
     def refine(self):
         self.mesh = self.mesh.refined(1)
 
     def capacitance(self):
-        from scipy.constants import epsilon_0 as eps0
+        eps0 = epsilon_0
         if self.basis_u == None:
             self.basis_u, self.u, self.basis_epsilon, self.epsilon = self.potential()
 
         @Functional(dtype=complex)
         def W(w):
             return 0.5 * w["epsilon"] * dot(w["u"].grad, w["u"].grad)
-    
-        C = (2* W.assemble(
+
+        C = (
+            2
+            * W.assemble(
                 self.basis_u,
                 epsilon=self.basis_epsilon.interpolate(self.epsilon),
                 u=self.basis_u.interpolate(self.u),
             )
-            / self.dV**2 * eps0 *self.units  # Returns in F/m
+            / self.dV**2
+            * eps0
+            * self.units  # Returns in F/m
         )
         return C
 
@@ -93,20 +112,24 @@ class coplanar_capacitor:
             basis_epsilon,
             epsilon,
             {
-                "left_plate___dielectric": self.dV/2,
-                "left_plate___air": self.dV/2,
-                "rigth_plate___dielectric": -self.dV/2,
-                "rigth_plate___air": -self.dV/2,
+                "left_plate___dielectric": self.dV / 2,
+                "left_plate___air": self.dV / 2,
+                "rigth_plate___dielectric": -self.dV / 2,
+                "rigth_plate___air": -self.dV / 2,
             },
         )
         return basis_u, u, basis_epsilon, epsilon
 
-    def plot_potential(self, ax = None): #This is generating very large images
+    def plot_potential(self, ax=None):  # This is generating very large images
         if ax == None:
             fig, ax = plt.subplots()
         self.basis_u, self.u, self.basis_epsilon, self.epsilon = self.potential()
-        for subdomain in self.basis_epsilon.mesh.subdomains.keys() - {"gmsh:bounding_entities"}:
-            self.basis_epsilon.mesh.restrict(subdomain).draw(ax=ax, boundaries_only=True)
+        for subdomain in self.basis_epsilon.mesh.subdomains.keys() - {
+            "gmsh:bounding_entities"
+        }:
+            self.basis_epsilon.mesh.restrict(subdomain).draw(
+                ax=ax, boundaries_only=True
+            )
         self.basis_u.plot(self.u, ax=ax, shading="flat", colorbar=True)
         return plt.show()
 
@@ -118,31 +141,31 @@ class coplanar_capacitor:
 
     def plot_domains(self):
         return plot_d(self.mesh)
-    
+
     def plot_subdomain_boundaries(self):
         return plot_sb(self.mesh)
 
 
-
-
 class box_capacitor:
-    '''
+    """
     A coplanar capacitor whith an outer conductive layer surrounding an inner one.
     Simulates in 3D a coplanar capacitor.
-    '''
-    def __init__(self, 
-                 width_in:float,
-                 width_out:float,
-                 length:float,
-                 spacing:float,
-                 thickness:float = 1,
-                 substrate_heigth:float = 550,
-                 mesh_size:float=0.5,
-                 padding:float = 50.,
-                 dV:float=1,
-                 dielectric_epsilon=11.7,
-                 units = units_um
-                 ):   
+    """
+
+    def __init__(
+        self,
+        width_in: float,
+        width_out: float,
+        length: float,
+        spacing: float,
+        thickness: float = 1,
+        substrate_heigth: float = 550,
+        mesh_size: float = 0.5,
+        padding: float = 50.0,
+        dV: float = 1,
+        dielectric_epsilon=11.7,
+        units=units_um,
+    ):
         self.w1 = width_in
         self.w2 = width_out
         self.l = length
@@ -153,41 +176,51 @@ class box_capacitor:
         self.dV = dV
         self.epsr = dielectric_epsilon
         self.basis_u = None
-        self.u = None 
+        self.u = None
         self.basis_epsilon = None
         self.epsilon = None
         self.units = units
-        self.padding= padding
+        self.padding = padding
+
+        if not _SIM_DEPS_OK:
+            raise ImportError(
+                "qfoundry simulation extras are not installed. Install with: pip install 'qfoundry[simulation]'"
+            ) from _SIM_IMPORT_ERROR
 
         mesh, polygons = __coplanar_capacitor_mesh__(
-            width = width,
+            width=width_in,
             separation=spacing,
             thickness=thickness,
-            substrate_heigth = substrate_heigth,
-            mesh_size = self.mesh_size,
-            padding = self.padding
+            substrate_heigth=substrate_heigth,
+            mesh_size=self.mesh_size,
+            padding=self.padding,
         )
         self.polygons = polygons
         self.mesh = mesh
-    
+
     def refine(self):
         self.mesh = self.mesh.refined(1)
 
     def capacitance(self):
         from scipy.constants import epsilon_0 as eps0
+
         if self.basis_u == None:
             self.basis_u, self.u, self.basis_epsilon, self.epsilon = self.potential()
 
         @Functional(dtype=complex)
         def W(w):
             return 0.5 * w["epsilon"] * dot(w["u"].grad, w["u"].grad)
-    
-        C = (2* W.assemble(
+
+        C = (
+            2
+            * W.assemble(
                 self.basis_u,
                 epsilon=self.basis_epsilon.interpolate(self.epsilon),
                 u=self.basis_u.interpolate(self.u),
             )
-            / self.dV**2 * eps0 *self.units  # Returns in F/m
+            / self.dV**2
+            * eps0
+            * self.units  # Returns in F/m
         )
         return C
 
@@ -201,20 +234,24 @@ class box_capacitor:
             basis_epsilon,
             epsilon,
             {
-                "left_plate___dielectric": self.dV/2,
-                "left_plate___air": self.dV/2,
-                "rigth_plate___dielectric": -self.dV/2,
-                "rigth_plate___air": -self.dV/2,
+                "left_plate___dielectric": self.dV / 2,
+                "left_plate___air": self.dV / 2,
+                "rigth_plate___dielectric": -self.dV / 2,
+                "rigth_plate___air": -self.dV / 2,
             },
         )
         return basis_u, u, basis_epsilon, epsilon
 
-    def plot_potential(self, ax = None): #This is generating very large images
+    def plot_potential(self, ax=None):  # This is generating very large images
         if ax == None:
             fig, ax = plt.subplots()
         self.basis_u, self.u, self.basis_epsilon, self.epsilon = self.potential()
-        for subdomain in self.basis_epsilon.mesh.subdomains.keys() - {"gmsh:bounding_entities"}:
-            self.basis_epsilon.mesh.restrict(subdomain).draw(ax=ax, boundaries_only=True)
+        for subdomain in self.basis_epsilon.mesh.subdomains.keys() - {
+            "gmsh:bounding_entities"
+        }:
+            self.basis_epsilon.mesh.restrict(subdomain).draw(
+                ax=ax, boundaries_only=True
+            )
         self.basis_u.plot(self.u, ax=ax, shading="flat", colorbar=True)
         return plt.show()
 
@@ -226,47 +263,47 @@ class box_capacitor:
 
     def plot_domains(self):
         return plot_d(self.mesh)
-    
+
     def plot_subdomain_boundaries(self):
         return plot_sb(self.mesh)
 
 
-
-
 # Auxiliary Functions
 def __coplanar_capacitor_mesh__(
-    width:float = 20,
-    separation:float=20,
-    thickness:float=1,
-    substrate_heigth:float = 550,
-    mesh_size:float = 0.5,
-    padding:float = 50.
+    width: float = 20,
+    separation: float = 20,
+    thickness: float = 1,
+    substrate_heigth: float = 550,
+    mesh_size: float = 0.5,
+    padding: float = 50.0,
 ):
     left_plate_polygon = shapely.geometry.box(
-        -width-separation/2, 0, -separation/2, thickness
+        -width - separation / 2, 0, -separation / 2, thickness
     )
     right_plate_polygon = shapely.geometry.box(
-        width+separation/2, 0, separation/2, thickness
+        width + separation / 2, 0, separation / 2, thickness
     )
     intra_plate_polygon = shapely.geometry.box(
-        -separation/2, 0, separation/2, thickness
+        -separation / 2, 0, separation / 2, thickness
     )
 
     substrate_polygon = shapely.geometry.box(
-        -max(width*10,padding+separation/2+width), 0, max(padding+separation/2+width,padding), -substrate_heigth
+        -max(width * 10, padding + separation / 2 + width),
+        0,
+        max(padding + separation / 2 + width, padding),
+        -substrate_heigth,
     )
     capacitor_polygon = shapely.unary_union(
         [left_plate_polygon, intra_plate_polygon, right_plate_polygon]
     )
-    metals_polygon = shapely.unary_union(
-        [left_plate_polygon, right_plate_polygon]
+    metals_polygon = shapely.unary_union([left_plate_polygon, right_plate_polygon])
+    outbound = capacitor_polygon.buffer(
+        max((width / 2 + separation), padding), resolution=8
     )
-    outbound = capacitor_polygon.buffer(max((width/2+separation),padding),
-                                        resolution=8)
 
-    dielectric_polygon = shapely.intersection(substrate_polygon,outbound)
+    dielectric_polygon = shapely.intersection(substrate_polygon, outbound)
     air_polygon = outbound.difference(substrate_polygon).difference(metals_polygon)
-    
+
     model = Model()
 
     left_plate = PolySurface(
@@ -304,8 +341,8 @@ def __coplanar_capacitor_mesh__(
         model.mesh(
             entities_list=[left_plate, right_plate, dielectric, air],
             filename="mesh.msh",
-            default_characteristic_length= mesh_size,
-            #progress_bars=None,
+            default_characteristic_length=mesh_size,
+            # progress_bars=None,
         )
     )
 

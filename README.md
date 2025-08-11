@@ -1,18 +1,27 @@
 # qfoundry
- Help functions for the calculation of superconductive circuits fro the quantum foundry at TII.
+Utilities for the calculation, modeling, and simulation of superconducting microwave circuits for quantum devices.
+
+Documentation: see docs/ or build with MkDocs (instructions below).
+
+Versioning: follows PEP 440. See CHANGELOG.md for release notes.
 
 ## Installation
-The easier way to install the qfoundry module is using pip and cloning all the files directly from the repository. For this clone the files to the desired folder in your computer and run ``pip install .`` after having activated the desired environment. Since the module is actively being updated, using the editable option ``-e`` in pip will allow for changes in the module files without the need to reinstall it.
+Install with pip from the repository root. Use editable mode for development.
 ```bash
 git clone https://github.com/jevillegasd/qfoundry
-cd ~/qfoundry/src/qfoundry/
+cd qfoundry
 pip install -e .
+```
+
+Optional: simulation extras (FEM-based capacitance tools):
+```bash
+pip install -e .[simulation]
 ```
 
 ## Usage
 
-### Waveguides and Resonators
-Coplanar waveguides (CPW) are the main builiding block of most circuits. A superconfuctive model of waveguides is directly implemented in the resonator.cpw module. A new CPW can be instantiated as 
+### Waveguides and resonators
+Coplanar waveguides (CPW) are a core building block. A superconductive CPW model is implemented in `qfoundry.resonator.cpw`. Create a CPW:
 ```python
 from qfoundry.resonator  import cpw
 from IPython.display import display, Math
@@ -28,7 +37,7 @@ display(Math(r'Z_0 = %2.2f\ \Omega,\ \epsilon_{eff} = %2.2f'%(wg.Z_0, wg.epsilon
 ```
 > $Z_0=49.22\Omega,\ \epsilon_{eff}=6.35$
 
-Using the generated waveguide, an instance of a resonator can be cretaed using the ``cpw_resonator`` class. Resonatros can be defined using either the length of the resonator or the desired resonance frequency as
+Create a resonator from the CPW using either length or target frequency:
 
 ```python
 from qfoundry.resonator  import cpw_resonator
@@ -39,7 +48,7 @@ n = 1 #Mode number
 
 res = cpw_resonator(wg, frequency = f0, length_f = length_factor, n=n)
 ```
-Parameters like resonator capacitance, kinetic inductances and quality factors are directly calculated and are readily accesible. Additionaly, the module creates a simple RCL impedance model that can be used for simple classical calculations using impedance based operattions. These can be sued to plot the freqquemncy response of the resonator for example using
+Parameters like resonator capacitance, kinetic inductance, and Q are computed. A simple RLC model enables frequency-domain analysis:
 ```python
 import numpy as np 
 frqs = np.linspace(6.6,7,1001)*1e9
@@ -55,7 +64,18 @@ fig = plt.plot(frqs,np.imag(S21))
 ![image](https://github.com/jevillegasd/qfoundry/assets/14344419/8197201d-57d6-4959-8e76-0b02a94dcb08)
 
 ### Qubits
+Transmon and tunable transmon models are provided via `qfoundry.qubits` (wrapping scqubits for spectra and derived quantities). See `docs/qubits.md`.
 
-
-```python
+## Docs
+- Build and preview docs locally:
+```bash
+pip install mkdocs mkdocs-material
+mkdocs serve
 ```
+
+## Versioning
+- This project follows PEP 440. The current version is exposed as `qfoundry.__version__`.
+- See CHANGELOG.md for releases.
+
+## References
+- See docs/references.md for key papers referenced in the implementation and formulas.

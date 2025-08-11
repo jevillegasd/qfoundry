@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qfoundry"
+version = "0.1.0"
+description = "Utilities for superconducting circuit design and analysis"
+readme = "README.md"
+requires-python = ">=3.9"
+# Set an explicit license if available; placeholder here
+license = { text = "All rights reserved" }
+authors = [
+  { name = "J. E. Villegas" }
+]
+keywords = ["superconducting", "quantum", "circuits", "cpw", "transmon", "simulation"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Operating System :: OS Independent",
+  "Topic :: Scientific/Engineering :: Physics",
+]
+dependencies = [
+  "numpy>=1.23",
+  "scipy>=1.10",
+  "matplotlib>=3.7",
+  "scqubits>=3.2",
+]
+
+[project.urls]
+Homepage = "https://github.com/jevillegasd/qfoundry"
+Issues = "https://github.com/jevillegasd/qfoundry/issues"
+
+[tool.setuptools]
+package-dir = {"" = "src/qfoundry"}
+
+[tool.setuptools.packages.find]
+where = ["src/qfoundry"]
+include = ["qfoundry*"]
+exclude = ["*.tests", "tests*"]
+
+[project.optional-dependencies]
+simulation = [
+  "shapely>=2.0",
+  "meshwell>=0.2; python_version >= '3.9'",
+  "femwell>=0.7",
+  "scikit-fem>=8.0",
+  "pandas<=2.3.1"
+]

@@ -1,0 +1,12 @@
+site_name: qfoundry
+repo_url: https://github.com/jevillegasd/qfoundry
+theme:
+  name: material
+nav:
+  - Home: index.md
+  - Getting started: getting-started.md
+  - Waveguides and resonators: resonator.md
+  - Qubits: qubits.md
+  - Simulation: simulation.md
+  - References: references.md
+  - Changelog: changelog.md

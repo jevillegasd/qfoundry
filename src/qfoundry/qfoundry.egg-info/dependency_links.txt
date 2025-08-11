@@ -1,6 +1,1 @@
-scqubits
-pyelmer
-scipy
-shapely
-meshwell
-femwell
+
