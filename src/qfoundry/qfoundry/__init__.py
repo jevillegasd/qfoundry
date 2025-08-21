@@ -25,6 +25,7 @@ __all__ = [
     "transmon",
     "tunable_transmon",
     "capacitance",
+    "josephson",
     "__version__",
 ]
 
@@ -46,4 +47,8 @@ def __getattr__(name):
                 "qfoundry simulation extras are not installed. Install with: pip install 'qfoundry[simulation]'"
             ) from exc
         return capacitance
+    if name == "josephson":
+        from . import josephson  # type: ignore
+
+        return josephson
     raise AttributeError(name)

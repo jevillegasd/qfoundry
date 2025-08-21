@@ -88,11 +88,11 @@ class PDK:
 
     def __str__(self):
         """String representation of the QW_PDK."""
-        return f"QW_PDK(epsilon_r={self.epsilon_r}, substrate_h={self.substrate_h}, substrate_rho={self.substrate_rho}, cpw_w={self.cpw_w}, cpw_g={self.cpw_g}, cpw_t={self.cpw_t}, alpha={self.alpha})"
+        return f"qfoudnry_PDK(epsilon_r={self.epsilon_r}, substrate_h={self.substrate_h}, substrate_rho={self.substrate_rho}, cpw_w={self.cpw_w}, cpw_g={self.cpw_g}, cpw_t={self.cpw_t}, alpha={self.alpha})"
 
     def __repr__(self):
         """String representation of the QW_PDK for debugging."""
-        return f"QW_PDK(epsilon_r={self.epsilon_r}, substrate_h={self.substrate_h}, substrate_rho={self.substrate_rho}, cpw_w={self.cpw_w}, cpw_g={self.cpw_g}, cpw_t={self.cpw_t}, alpha={self.alpha})"
+        return f"qfoudnry_PDK(epsilon_r={self.epsilon_r}, substrate_h={self.substrate_h}, substrate_rho={self.substrate_rho}, cpw_w={self.cpw_w}, cpw_g={self.cpw_g}, cpw_t={self.cpw_t}, alpha={self.alpha})"
 
 
 class QW_PDK(PDK):

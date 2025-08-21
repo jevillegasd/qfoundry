@@ -366,7 +366,7 @@ class cpw_resonator(circuit):
         return self.f0() / self.Q_ext(Cin=Cin)
 
     def C(self):
-        return self._C_
+        return self._C_ * self.length_f
 
     def L(self):
         return self._L_

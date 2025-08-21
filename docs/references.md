@@ -8,3 +8,5 @@
 - Jeffrey, E. et al. (2014). “Fast Accurate State Measurement with Superconducting Qubits.” Phys. Rev. Lett. 112, 190504. arXiv:1401.0257
 - Chitta, A., et al. (2022). "Numerical analysis of superconducting qubits." *(Assumed citation from filename)*
 - Groszkowski, P. & Koch, J. (2021). "scqubits: a Python package for superconducting qubits." *Quantum* 5, 463.
+- Fowler, R. H. & Nordheim, L. (1928). "Electron emission in intense electric fields." Proc. R. Soc. Lond. A 119, 173-181.
+- Simmons, J. G. (1963). "Generalized formula for the electric tunnel effect between similar electrodes separated by a thin insulating film." J. Appl. Phys. 34, 1793-1803.

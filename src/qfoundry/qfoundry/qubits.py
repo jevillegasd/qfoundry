@@ -14,18 +14,16 @@ from scipy.constants import e as e_0
 from scipy.constants import Planck as h_0
 
 from numpy import sqrt, pi, tanh, abs
-
+import inspect
 
 class transmon(circuit):
     """
     Single Junction Qubit
-        R_j:float=0.0,       # Total junction resistance
-        E_j:float=0.0,
+        E_j:float               # Josephson energy
         C_sum:float=67.5e-15,
         C_g:float  =21.7e-15,
         C_k:float  =36.7e-15,
         C_xy:float =0.e-15,
-        C_in:float =8.98e-15,
         res_ro     = cpw_resonator(cpw(11.7,0.1,12,6, alpha=2.4e-2),frequency = 7e9, length_f = 2),    #Readout Resonator
         R_jx:float = 0.0,       # Resistance correction factor
         mat = sc_metal(1.14),
@@ -37,13 +35,13 @@ class transmon(circuit):
 
     def __init__(
         self,
-        I_c: float,  # Total junction resistance
+        E_j: float,  # Josephson energy
         C_sum: float = 67.5e-15,
         C_g: float = 21.7e-15,
         C_k: float = 36.7e-15,
         C_xy: float = 0.0e-15,
         res_ro=cpw_resonator(
-            cpw(11.7, 0.1, 12, 6, alpha=2.4e-2), frequency=7e9, length_f=2
+            cpw(11.7, 0.1, 12, 6, alpha=2.4e-2), frequency=7e9, length_f=4
         ),  # Readout Resonator
         R_jx: float = 0.0,  # Resistance correction factor
         mat=sc_metal(1.14, 20e-3),
@@ -54,7 +52,8 @@ class transmon(circuit):
     ):
         self.mat = mat
         self.R_jx = R_jx
-        self.ic = I_c
+        self.ej = E_j
+        self.ic = E_j * (2 * e_0 * 2 * pi)
         self.R_j = Ic_to_R(self.ic, mat=mat, R_jx=R_jx)
 
         self.C_sum = C_sum
@@ -83,12 +82,12 @@ class transmon(circuit):
         self._C_ = C_sum
 
     @classmethod
-    def from_ej(cls, E_j: float, **kwargs):
+    def from_ic(cls, i_c: float, **kwargs):
         """
-        Initialize transmon from Josephson energy E_j.
+        Initialize transmon from critical current I_c.
         """
-        i_c = E_j * 4 * pi * e_0 / h_0
-        return cls(I_c=i_c, **kwargs)
+        E_j = i_c / (2 * e_0 * 2 * pi)
+        return cls(E_j=E_j, **kwargs)
 
     @classmethod
     def from_rj(cls, R_j: float, **kwargs):
@@ -98,7 +97,8 @@ class transmon(circuit):
         mat = kwargs.get("mat", sc_metal(1.14, 20e-3))
         r_jx = kwargs.get("R_jx", 0.0)
         i_c = R_to_Ic(R_j - r_jx, mat=mat)
-        return cls(I_c=i_c, **kwargs)
+        E_j = i_c / (2 * e_0 * 2 * pi)
+        return cls(E_j=E_j, **kwargs)
 
     @classmethod
     def from_f01(cls, f01: float, C_sum: float, **kwargs):
@@ -114,11 +114,8 @@ class transmon(circuit):
         # Calculate required Ej from f01 and Ec
         ej = (f01 + ec) ** 2 / (8 * ec)
 
-        # Convert Ej to Ic
-        i_c = ej * (2 * e_0 * 2 * pi)
-
         # Note: C_sum from arguments is passed via kwargs
-        return cls(I_c=i_c, C_sum=C_sum, **kwargs)
+        return cls(E_j=ej, C_sum=C_sum, **kwargs)
 
     def alpha(self):
         """
@@ -154,7 +151,7 @@ class transmon(circuit):
         """
         Josephson energy
         """
-        return self.Ic() / (2 * e_0) / (2 * pi)
+        return self.ej
 
     def g01(self):
         """
@@ -251,9 +248,26 @@ class tunable_transmon(transmon):
 
         super().__init__(*args, **kwargs)
 
+        # Check relevant args for TunableTransmon available in kwargs
+        for key, value in kwargs.items():
+            if key in [
+                "EJmax",
+                "EC",
+                "d",
+                "C_sum",
+                "C_g",
+                "C_xy",
+                "res_ro",
+                "C_k",
+                "kappa",
+                "ncut",
+                "truncated_dim",
+            ]:
+                setattr(self, key, value)
+
         self.qmodel = scq.TunableTransmon(
-            EJmax=self.Ej() / 1e9 * 2 * pi,
-            EC=self.Ec() / 1e9 * 2 * pi,
+            EJmax=self.Ej() / 1e9,
+            EC=self.Ec() / 1e9,
             d=self.d,
             flux=self.flux,
             ng=self.ng,
