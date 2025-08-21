@@ -41,44 +41,41 @@ class transmon(circuit):
         C_k: float = 36.7e-15,
         C_xy: float = 0.0e-15,
         res_ro=cpw_resonator(
-            cpw(11.7, 0.1, 12, 6, alpha=2.4e-2), frequency=7e9, length_f=4
-        ),  # Readout Resonator
-        R_jx: float = 0.0,  # Resistance correction factor
+            cpw(11.7, 0.1, 12, 6, alpha=2.4e-2), frequency=7e9, length_f=4 # Readout Resonator
+        ),  
         mat=sc_metal(1.14, 20e-3),
-        kappa=0.0,
-        ng=0.3,  # Offset Charge
-        ncut=40,
-        truncated_dim=10,
+        **kwargs
     ):
         self.mat = mat
-        self.R_jx = R_jx
+
         self.ej = E_j
-        self.ic = E_j * (2 * e_0 * 2 * pi)
-        self.R_j = Ic_to_R(self.ic, mat=mat, R_jx=R_jx)
+        self.ec = e_0**2 / (2 * C_sum) / h_0   # https://arxiv.org/pdf/cond-mat/0703002 eq. 2.1*
+
+        self.R_jx = kwargs.get("R_jx", 0)  # Resistance correction factor
+        self.R_j = Ic_to_R(self.Ic(), mat=mat, R_jx=self.R_jx)
 
         self.C_sum = C_sum
         self.C_g = C_g
         self.C_k = C_k
         self.C_xy = C_xy
-        self.Cr = res_ro.C
         self.res_ro = res_ro
-        self.ng = ng
-        self.ncut = ncut
-        self.truncated_dim = truncated_dim
+        
+        # Additional parameters
+        self.kappa = kwargs.get("kappa", self.res_ro.kappa_ext()) # External coupling rate
+        self.ng = kwargs.get("ng", 0.3)     # Offset charge
+        self.ncut = kwargs.get("ncut", 10)  # Number of states to truncate the Hilbert space
+        self.truncated_dim = kwargs.get("truncated_dim", 5) # Number of states to truncate the Hilbert space
 
+        # Instantiate the qubit model
         self.qmodel = scq.Transmon(
-            EJ=self.Ej() / 1e9 * 2 * pi,
-            EC=self.Ec() / 1e9 * 2 * pi,
-            ng=ng,
-            ncut=ncut,
-            truncated_dim=truncated_dim,
+            EJ=self.Ej() / 1e9,
+            EC=self.Ec() / 1e9,
+            ng=self.ng,
+            ncut=self.ncut,
+            truncated_dim=self.truncated_dim,
         )
-
-        self.Delta = abs(self.res_ro.f0() - self.f01())
-        if kappa == 0.0:
-            self.kappa = self.res_ro.kappa_ext()
-        else:
-            self.kappa = kappa
+        
+        # super parameters
         self._C_ = C_sum
 
     @classmethod
@@ -101,27 +98,28 @@ class transmon(circuit):
         return cls(E_j=E_j, **kwargs)
 
     @classmethod
-    def from_f01(cls, f01: float, C_sum: float, **kwargs):
+    def from_f01(cls, f01: float, **kwargs):
         """
         Initialize transmon from a target qubit frequency f01.
 
         This uses the approximation f01 = sqrt(8 * Ej * Ec) - Ec to find the
         required Ej for a given Ec.
         """
+        C_sum = kwargs.get("C_sum", 60e-15)
+
         # Calculate Ec from C_sum
         ec = e_0**2 / (2 * C_sum) / h_0
 
         # Calculate required Ej from f01 and Ec
         ej = (f01 + ec) ** 2 / (8 * ec)
 
-        # Note: C_sum from arguments is passed via kwargs
-        return cls(E_j=ej, C_sum=C_sum, **kwargs)
+        return cls(E_j=ej, **kwargs)
 
     def alpha(self):
         """
         Anharmonicity
         """
-        return self.qmodel.anharmonicity() * 1e9 / (2 * pi)
+        return self.qmodel.anharmonicity() * 1e9
 
     def L(self, phi=0.0):
         """
@@ -133,7 +131,7 @@ class transmon(circuit):
         # return (self.f01()*sqrt(self.C()))**-2
 
     def Ic(self):
-        return self.ic
+        return self.ej* 2 * e_0 * (2 * pi)
 
     def Rj(self):
         """
@@ -145,7 +143,7 @@ class transmon(circuit):
         """
         Capacitive energy
         """
-        return e_0**2 / (2 * self.C_sum) / h_0
+        return self.ec
 
     def Ej(self):
         """
@@ -155,17 +153,28 @@ class transmon(circuit):
 
     def g01(self):
         """
-        Coupling strength between the qubit and the resonator
-        """
-        w_r = self.res_ro.f0() * 2 * pi
-        hbar = h_0 / (2 * pi)
-        C_r: cpw_resonator = self.res_ro.C()
+        Coupling strength between the qubit and the resonator (capacitive)
+        https://arxiv.org/pdf/1904.06560 eq. 145
+        https://arxiv.org/pdf/cond-mat/0703002 eq. 3.3
 
+        g01 = 2 * beta * e * Vrms / hbar
+        where beta is the participation ratio (beta ~= C_g/ (C_g + C_sum)) [drive capaictance over total capacitance]
+        e is the elementary charge,
+        Vrms is the root mean square voltage across the resonator, and hbar is the reduced Planck's constant.
+        The Vrms can be calculated from the resonator frequency and its capacitance as
+        V_rms = sqrt(hbar * omega_r / (2 * C_r))
+        
+        https://arxiv.org/pdf/cond-mat/0703002 eq. 3.1*
+        """
+        
+        w_r     = self.res_ro.w0()
+        hbar    = h_0 / (2 * pi)
+        C_r     = self.res_ro.C()
+        beta    = self.C_g / (self.C_g + self.C_sum)
+        Vrms    = sqrt(hbar * w_r / (2 * C_r))
+        
         return (
-            e_0
-            * self.C_g
-            / (self.C_g + self.C_sum)
-            * sqrt(2 * self.res_ro.f0() / (h_0 * C_r))
+            2 * beta * e_0 * Vrms / h_0 # Also changed units to Hz
         )
 
     def chi(self):
@@ -173,13 +182,13 @@ class transmon(circuit):
         Dispersive shift
         https://arxiv.org/pdf/1904.06560 eq. 146
         """
-        return (self.g01() ** 2) / (self.Delta) * (1 / (1 + self.Delta / self.alpha()))
+        return (self.g01() ** 2) / (self.delta()) * (1 / (1 + self.delta() / self.alpha()))
 
     def f01(self):
         """
         Qubit 01 frequency
         """
-        return self.qmodel.E01() / (2 * pi) * 1e9
+        return self.qmodel.E01() * 1e9
         # return ((8*self.Ej()*self.Ec())**0.5-self.Ec())
 
     def f12(self):
@@ -207,6 +216,12 @@ class transmon(circuit):
 
     def f0(self):
         return self.f01()
+    
+    def delta(self):
+        """
+        Frequency detuning
+        """
+        return abs(self.res_ro.f0() - self.f01())
 
     def C(self):
         return self.C_sum
@@ -215,7 +230,7 @@ class transmon(circuit):
         """
         Higher bound of T1
         """
-        return (self.Delta / self.g01()) ** 2 / (self.kappa)
+        return (self.delta() / self.g01()) ** 2 / (self.kappa)
 
     def __str__(self):
         return (

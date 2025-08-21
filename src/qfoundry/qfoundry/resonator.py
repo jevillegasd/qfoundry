@@ -256,41 +256,37 @@ class cpw_resonator(circuit):
     """
     A coplanar waveguide resonator
     """
+    length = None  # Length of the resonator in m
 
     def __init__(
         self,
         wg: cpw,
-        length: float = None,
         frequency: float = None,
         length_f: int = 2,
         n: int = 1,
         Cg: float = 0.0,
         Ck: float = 0.0,
+        R_L: float = 50.0,  # Load resistance in Ohms
     ):
         self.wg = wg
         self.length_f = length_f  # length factor: 4: quarter wavelength resonator
         self.n = n  # mode number
         self.Cin = Ck
-        R_L = 50
 
-        if frequency is None:  # Input is length
-            self.length = length
-            self._C_ = self.wg.C_m * self.length / 2
-            self._L_ = (
-                2 * self.wg.L_m * self.length / (self.n * 2 * np.pi) ** 2
-            )  # https://arxiv.org/pdf/0807.4094 (Wallraff2008) [11]
-
-        elif length is None:  # Input is frequency
+        if self.length is None:
             Cc = (Ck + Cg) / (1 + 2 * np.pi * frequency**2 * (Ck + Cg) ** 2 * R_L**2)
             self.length = self._get_length_(
-                frequency * length_f, Cc * length_f / 2, n=n
+                frequency, Cc , n=n, length_f=length_f
             )
-            self._L_ = (
-                2 * self.wg.L_m * self.length / (self.n * 2 * np.pi) ** 2
-            )  # https://arxiv.org/pdf/0807.4094 (Wallraff2008) [11]
-            self._C_ = self.wg.C_m * self.length / 2
-        else:
-            return None
+
+        # https://arxiv.org/pdf/0807.4094 (Wallraff2008) [11]
+        self._L_ = (
+            2 * self.wg.L_m * self.length / (self.n * np.pi) ** 2
+        ) 
+        self._C_ = self.wg.C_m * self.length / 2 + Cg + Ck
+
+        
+
         self._R_ = wg.Z_0k / (self.wg.alpha * self.length * self.length_f)
 
         # Correct for the coupling capacitance
@@ -306,7 +302,26 @@ class cpw_resonator(circuit):
             truncated_dim=4,  # up to 3 photons (0,1,2,3)
         )
 
-    def _get_length_(self, f0, Cp: float = 0.0, n: int = 1):
+    @classmethod
+    def from_length(cls, length: float, **kwargs):
+        """
+        Create a resonator from a given length.
+        https://arxiv.org/pdf/0807.4094 (Wallraff2008) [11]
+        """
+        
+        wg = kwargs.get("wg", cpw(11.7, 0.1, 12, 6, alpha=2.4e-2))
+        length_f = kwargs.get("length_f", 2) 
+
+        self.length = length
+        C = wg.C_m * length / 2 + kwargs.get("Cg", 0.0) + kwargs.get("Ck", 0.0)
+        L = (
+            2 * wg.L_m * length / (self.n * np.pi) ** 2
+        )  
+
+        f0 = 1 / (2 * np.pi * np.sqrt(L * C)) / length_f
+        return cls(frequency=f0, **kwargs)
+
+    def _get_length_(self, f0, Cp: float = 0.0, n: int = 1, length_f: int = 2):
         from scipy.constants import c as c0
 
         def solve_quad(a, b, c):
@@ -318,10 +333,10 @@ class cpw_resonator(circuit):
         if Cp > 1e-20:
             Cm = self.wg.C_m
             Lm = self.wg.L_m
-            w = 2 * np.pi * f0 * n
+            w = 2 * np.pi * f0 * n * length_f
             Ls = Lm / (2 * self.n * np.pi) ** 2
 
-            l1, l2 = solve_quad(Cm * Ls * w**2, Ls * Cp * w**2, -1)
+            l1, l2 = solve_quad(Cm * Ls * w**2, Ls * Cp * length_f * w**2, -1)
             return max(l1, l2)
         else:
             return ((c0) / ((self.wg.epsilon_ek**0.5))) * (1 / (f0 * n))
@@ -345,7 +360,7 @@ class cpw_resonator(circuit):
 
     def f0(self):
         return (
-            self._f0_() / self.length_f
+            self._f0_()
         )  # __f0__() calculates the fundamental LC resonance of the RCL circuit
 
     def kappa(self):
