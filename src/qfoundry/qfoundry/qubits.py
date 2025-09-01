@@ -32,6 +32,7 @@ class transmon(circuit):
         ng =0.3 #Offset Charge
         NOTE: Energies are in E/h (not E/hbar)
     """
+    qmodel = None
 
     def __init__(
         self,
@@ -44,6 +45,7 @@ class transmon(circuit):
             cpw(11.7, 0.1, 12, 6, alpha=2.4e-2), frequency=7e9, length_f=4 # Readout Resonator
         ),  
         mat=sc_metal(1.14, 20e-3),
+        inst_model = True,  # Whether to instantiate the scquibits model
         **kwargs
     ):
         self.mat = mat
@@ -63,18 +65,19 @@ class transmon(circuit):
         # Additional parameters
         self.kappa = kwargs.get("kappa", self.res_ro.kappa_ext()) # External coupling rate
         self.ng = kwargs.get("ng", 0.3)     # Offset charge
-        self.ncut = kwargs.get("ncut", 10)  # Number of states to truncate the Hilbert space
-        self.truncated_dim = kwargs.get("truncated_dim", 5) # Number of states to truncate the Hilbert space
+        self.ncut = kwargs.get("ncut", 8)  # Number of states to truncate the Hilbert space
+        self.truncated_dim = kwargs.get("truncated_dim", 8) # Number of states to truncate the Hilbert space
 
         # Instantiate the qubit model
-        self.qmodel = scq.Transmon(
-            EJ=self.Ej() / 1e9,
-            EC=self.Ec() / 1e9,
-            ng=self.ng,
-            ncut=self.ncut,
-            truncated_dim=self.truncated_dim,
-        )
-        
+        if inst_model:
+            self.qmodel = scq.Transmon(
+                EJ=self.Ej() / 1e9,
+                EC=self.Ec() / 1e9,
+                ng=self.ng,
+                ncut=self.ncut,
+                truncated_dim=self.truncated_dim,
+            )
+
         # super parameters
         self._C_ = C_sum
 
@@ -250,6 +253,10 @@ class transmon(circuit):
                 self.alpha() * 1e-6,
             )
         )
+    
+    # print
+    def __repr__(self):
+        return super().__repr__() + self.__str__()
 
 
 class tunable_transmon(transmon):
@@ -260,21 +267,12 @@ class tunable_transmon(transmon):
     def __init__(self, flux=0.0, d=1, *args, **kwargs):
         self.flux = flux
         self.d = d  # Assymetry parameter
-
-        super().__init__(*args, **kwargs)
+        self.ng = kwargs.get("ng", 0.3)  # Offset charge
+        super().__init__(inst_model=False, *args, **kwargs)
 
         # Check relevant args for TunableTransmon available in kwargs
         for key, value in kwargs.items():
             if key in [
-                "EJmax",
-                "EC",
-                "d",
-                "C_sum",
-                "C_g",
-                "C_xy",
-                "res_ro",
-                "C_k",
-                "kappa",
                 "ncut",
                 "truncated_dim",
             ]:

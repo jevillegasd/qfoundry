@@ -257,7 +257,9 @@ class cpw_resonator(circuit):
     A coplanar waveguide resonator
     """
     length = None  # Length of the resonator in m
-
+    qmodel = None  # scqubits model of the resonator
+    truncated_dim = None
+    
     def __init__(
         self,
         wg: cpw,
@@ -267,6 +269,7 @@ class cpw_resonator(circuit):
         Cg: float = 0.0,
         Ck: float = 0.0,
         R_L: float = 50.0,  # Load resistance in Ohms
+        **kwargs
     ):
         self.wg = wg
         self.length_f = length_f  # length factor: 4: quarter wavelength resonator
@@ -296,11 +299,14 @@ class cpw_resonator(circuit):
         )
         self._C_ = self._C_ + (Ck + Cg) / (1 + w**2 * (Ck + Cg) ** 2 * R_L**2)
 
-        self.qmodel = scq.Oscillator(
-            E_osc=self.f0() * 1e-9,
-            l_osc=self.length,
-            truncated_dim=4,  # up to 3 photons (0,1,2,3)
-        )
+        if self.qmodel is None and kwargs.get("inst_model", True):
+            self.truncated_dim = kwargs.get("truncated_dim", 4)
+            self.qmodel = scq.Oscillator(
+                E_osc=self.f0() * 1e-9,
+                l_osc=self.length,
+                truncated_dim=self.truncated_dim,  # up to 3 photons (0,1,2,3)
+            )
+            
 
     @classmethod
     def from_length(cls, length: float, **kwargs):
@@ -385,6 +391,20 @@ class cpw_resonator(circuit):
 
     def L(self):
         return self._L_
+    
+    def __str__(self):
+        return super().__str__() + (
+            "f0 = \t%3.2f GHz \nL = \t%3.2f nH \nC = \t%3.2f fF \nQ = \t%3.2f \nQ_ext = \t%3.2f \nkappa = \t%3.2f MHz \nkappa_ext = \t%3.2f MHz\n"
+            % (
+                self.f0() * 1e-9,
+                self.L() * 1e9,
+                self.C() * 1e15,
+                self.Q(),
+                self.Q_ext(),
+                self.kappa() * 1e-6,
+                self.kappa_ext() * 1e-6,
+            )
+        )
 
 
 #
