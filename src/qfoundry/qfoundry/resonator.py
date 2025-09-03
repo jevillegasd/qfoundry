@@ -9,10 +9,6 @@ References
 - Ghione (1984), doi:10.1049/el:19840120 - CPW impedance and capacitance calculations
 - Watanabe (1994), doi:10.1143/JJAP.33.5708 - CPW effective permittivity
 - Wallraff et al. (2008), arXiv:0807.4094 - Main reference for CPW resonator theory
-  * Eq. (11): Resonator inductance L = 2*L_l*l/(n*π)²
-  * Eq. (12): Resonator capacitance C = C_l*l/2 + C_c
-  * Eq. (15): Coupling capacitance correction
-  * Section III.C: Quality factor and coupling analysis
 """
 
 from scipy.constants import c, epsilon_0, m_e, hbar, e, k, pi, Avogadro
@@ -609,8 +605,10 @@ class cpw_resonator(circuit):
         """
         Transmission coefficient |S₂₁|² for a side-coupled resonator.
         
-        From Wallraff Eq. (19): |S₂₁|² = g²/((1+g)² + 4Q²((f-f₀)/f₀)²)
-        where g is the coupling strength.
+        For a resonator side-coupled to a transmission line, the transmission
+        depends on the coupling strength and frequency detuning.
+        Standard form: |S₂₁|² = |1 - (κ_ext/2)/(iΔ + κ_total/2)|²
+        where Δ = f - f₀ and κ_total = κ_int + κ_ext.
         """
         if Cin is None:
             Cin = self.Cin
@@ -636,8 +634,10 @@ class cpw_resonator(circuit):
             
         Notes
         -----
-        Assumes the resonator is driven on resonance and uses the relation
-        ⟨n⟩ = P_in * Q_ext / (ℏω₀ * κ_ext)
+        For a driven resonator, the steady-state photon number depends on
+        input power, coupling strength, and internal losses. The exact
+        relationship depends on the driving configuration and impedance matching.
+        ⟨n⟩ = P_in * Q_ext / (ℏω₀ * κ_ext) for on-resonance driving.
         """
         power_watts = 10**(power_dBm/10 - 3)  # Convert dBm to watts
         hbar_omega = hbar * self.w0()
@@ -694,8 +694,12 @@ class cpw_resonator(circuit):
         Notes
         -----
         The participation ratio quantifies how much of the resonator's electric
-        field energy is concentrated in the junction. 
-        p_j = (ε₀*∫|E_j|²dV) / (2*U_E) where U_E is total electric energy.
+        field energy is concentrated in the junction. This is commonly defined as:
+        p_j = U_j / U_total where U_j is the electric energy in the junction
+        and U_total is the total electric energy stored in the resonator.
+        
+        See: Nigg et al. (2012) Phys. Rev. Lett. 108, 240502 for transmon theory
+        and Krantz et al. (2019) Appl. Phys. Rev. 6, 021318 for review.
         """
         # Electric field in the junction (simplified as uniform field)
         E_junction = self.electric_field_rms() * 2  # Factor of 2 for field enhancement
@@ -726,8 +730,12 @@ class cpw_resonator(circuit):
             
         Notes
         -----
-        χ = α_q * p_j * (E_c/ℏω_r) where E_c is the
-        charging energy and p_j is the participation ratio.
+        In the dispersive regime, the shift is approximately:
+        χ ≈ g²/Δ where g is the coupling strength and Δ is the detuning.
+        For transmons, this can also be written in terms of participation ratio.
+        
+        See: Koch et al. (2007) Phys. Rev. A 76, 042319 for transmon theory
+        and Blais et al. (2004) Phys. Rev. A 69, 062320 for dispersive coupling.
         """
         # Charging energy from participation ratio (simplified)
         E_c = e**2 / (2 * self.C())  # Charging energy in Joules
@@ -752,8 +760,11 @@ class cpw_resonator(circuit):
             
         Notes
         -----
-        From Wallraff Eq. (24): Γ_Purcell = g² * κ_ext / Δ² where Δ is the
-        detuning between qubit and resonator.
+        The Purcell effect enhances spontaneous emission into the resonator mode.
+        Γ_Purcell = (g²/Δ²) * κ where g is coupling, Δ is detuning, κ is decay rate.
+        
+        See: Purcell (1946) Phys. Rev. 69, 37 for original theory
+        and Houck et al. (2007) Nature 449, 328 for circuit QED implementation.
         """
         detuning = abs(qubit_frequency - self.f0())
         if detuning == 0:
@@ -842,21 +853,9 @@ class cpw_resonator(circuit):
                 self.length * 1e3,
             )
         )
-        return (
-            "f0 = \t%3.2f GHz \nL = \t%3.2f nH \nC = \t%3.2f fF \nQ = \t%3.2f \nQ_ext = \t%3.2f \nkappa = \t%3.2f MHz \nkappa_ext = \t%3.2f MHz\n"
-            % (
-                self.f0() * 1e-9,
-                self.L() * 1e9,
-                self.C() * 1e15,
-                self.Q(),
-                self.Q_ext(),
-                self.kappa() * 1e-6,
-                self.kappa_ext() * 1e-6,
-            )
-        )
+        
 
-
-# References with specific equation numbers:
+# References with specific equation numbers and accurate citations:
 #
 # [1] Ghione (1984), doi: 10.1049/el:19840120
 #     - Elliptic integral formulation for CPW impedance and capacitance
@@ -868,11 +867,13 @@ class cpw_resonator(circuit):
 #     - Eq. (11): Resonator inductance L = 2*L_l*l/(n*π)²
 #     - Eq. (12): Resonator capacitance C = C_l*l/2 + C_c  
 #     - Eq. (15): Coupling capacitance C_p = C_k/(1 + (ω*C_k*R_L)²)
-#     - Eq. (17): External Q factor Q_ext = π/(4*(Z₀*ω*C_k)²)
-#     - Eq. (18): Internal Q factor Q_int = ω₀*L/R_s
-#     - Eq. (19): Transmission |S₂₁|² = g²/((1+g)² + 4Q²((f-f₀)/f₀)²)
-#     - Eq. (20): Photon number ⟨n⟩ = P_in*Q_ext/(ℏω₀*κ_ext)
-#     - Eq. (22): Participation ratio p_j = (ε₀*∫|E_j|²dV)/(2*U_E)
-#     - Eq. (23): Dispersive shift χ = α_q*p_j*(E_c/ℏω_r)
-#     - Eq. (24): Purcell rate Γ_Purcell = g²*κ_ext/Δ²
+#     - General theory of CPW resonators and quality factors
+#
+# Additional key references for quantum circuit theory:
+# - Koch et al. (2007) Phys. Rev. A 76, 042319 - Transmon qubit theory
+# - Blais et al. (2004) Phys. Rev. A 69, 062320 - Circuit QED theory  
+# - Nigg et al. (2012) Phys. Rev. Lett. 108, 240502 - Participation ratio
+# - Krantz et al. (2019) Appl. Phys. Rev. 6, 021318 - Comprehensive review
+# - Houck et al. (2007) Nature 449, 328 - Circuit QED experiments
+# - Purcell (1946) Phys. Rev. 69, 37 - Original Purcell effect theory
 #
