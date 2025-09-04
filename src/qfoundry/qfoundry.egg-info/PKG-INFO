@@ -16,12 +16,13 @@ Description-Content-Type: text/markdown
 Requires-Dist: numpy>=1.23
 Requires-Dist: scipy>=1.10
 Requires-Dist: matplotlib>=3.7
-Requires-Dist: scqubits>=3.2
+Requires-Dist: scqubits==4.3.1
 Provides-Extra: simulation
 Requires-Dist: shapely>=2.0; extra == "simulation"
 Requires-Dist: meshwell>=0.2; python_version >= "3.9" and extra == "simulation"
 Requires-Dist: femwell>=0.7; extra == "simulation"
 Requires-Dist: scikit-fem>=8.0; extra == "simulation"
+Requires-Dist: pandas<=2.3.1; extra == "simulation"
 
 # qfoundry
 Utilities for the calculation, modeling, and simulation of superconducting microwave circuits for quantum devices.

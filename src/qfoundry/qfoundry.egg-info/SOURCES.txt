@@ -7,9 +7,14 @@ src/qfoundry/qfoundry.egg-info/requires.txt
 src/qfoundry/qfoundry.egg-info/top_level.txt
 src/qfoundry/qfoundry/PDK.py
 src/qfoundry/qfoundry/__init__.py
+src/qfoundry/qfoundry/josephson.py
 src/qfoundry/qfoundry/qubits.py
 src/qfoundry/qfoundry/resonator.py
 src/qfoundry/qfoundry/utils.py
+src/qfoundry/qfoundry.egg-info/PKG-INFO
 src/qfoundry/qfoundry.egg-info/SOURCES.txt
+src/qfoundry/qfoundry.egg-info/dependency_links.txt
+src/qfoundry/qfoundry.egg-info/requires.txt
+src/qfoundry/qfoundry.egg-info/top_level.txt
 src/qfoundry/qfoundry/simulation/__init__.py
 src/qfoundry/qfoundry/simulation/capacitance.py

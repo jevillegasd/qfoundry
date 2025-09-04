@@ -8,7 +8,6 @@ version = "0.1.0"
 description = "Utilities for superconducting circuit design and analysis"
 readme = "README.md"
 requires-python = ">=3.9"
-# Set an explicit license if available; placeholder here
 license = { text = "All rights reserved" }
 authors = [
   { name = "J. E. Villegas" }
@@ -24,7 +23,7 @@ dependencies = [
   "numpy>=1.23",
   "scipy>=1.10",
   "matplotlib>=3.7",
-  "scqubits>=3.2",
+  "scqubits<4.4", 
 ]
 
 [project.urls]
@@ -45,5 +44,5 @@ simulation = [
   "meshwell>=0.2; python_version >= '3.9'",
   "femwell>=0.7",
   "scikit-fem>=8.0",
-  "pandas<=2.3.1"
+  "pandas>=2.0,<3.0"
 ]
