@@ -19,27 +19,28 @@ import inspect
 class transmon(circuit):
     """
     Single Junction Qubit
-        E_j:float               # Josephson energy
-        C_sum:float=67.5e-15,
-        C_g:float  =21.7e-15,
-        C_k:float  =36.7e-15,
-        C_xy:float =0.e-15,
-        res_ro     = cpw_resonator(cpw(11.7,0.1,12,6, alpha=2.4e-2),frequency = 7e9, length_f = 2),    #Readout Resonator
-        R_jx:float = 0.0,       # Resistance correction factor
-        mat = sc_metal(1.14),
-        T = 20.e-3,
+        E_j:    float               # Josephson energy
+        C_sum:  float=67.5e-15,
+        C_g:    float  =21.7e-15,
+        C_k:    float  =36.7e-15,
+        C_xy:   float =0.e-15,
+        res_ro = cpw_resonator(cpw(11.7,0.1,12,6, alpha=2.4e-2),frequency = 7e9, length_f = 2),    #Readout Resonator
+        R_jx:   float = 0.0,       # Resistance correction factor
+        mat =   sc_metal(1.14),
+        T =     20.e-3,
         kappa = 0.0,
-        ng =0.3 #Offset Charge
+        ng = 0.3 #Offset Charge
         NOTE: Energies are in E/h (not E/hbar)
     """
     qmodel = None
+    _Rj_ = None  # Junction resistance
+    _Rx_ = None  # Junction resistance correction factor
 
     def __init__(
         self,
         E_j: float,  # Josephson energy
-        C_sum: float = 67.5e-15,
+        E_c: float = None,
         C_g: float = 21.7e-15,
-        C_k: float = 36.7e-15,
         C_xy: float = 0.0e-15,
         res_ro=cpw_resonator(
             cpw(11.7, 0.1, 12, 6, alpha=2.4e-2), frequency=7e9, length_f=4 # Readout Resonator
@@ -49,26 +50,34 @@ class transmon(circuit):
         **kwargs
     ):
         self.mat = mat
+        self._ej_ = E_j
+        self._ec_ = E_c   
 
-        self.ej = E_j
-        self.ec = e_0**2 / (2 * C_sum) / h_0   # https://arxiv.org/pdf/cond-mat/0703002 eq. 2.1*
+        if E_c is None:
+            C_sum = kwargs.get("C_sum", None)
+            assert C_sum is not None, "Either E_c or C_sum should not be provided."
+            self._ec_ = e_0**2 / (2 * C_sum) / h_0
 
-        self.R_jx = kwargs.get("R_jx", 0)  # Resistance correction factor
-        self.R_j = Ic_to_R(self.Ic(), mat=mat, R_jx=self.R_jx)
+        # Resistance values may be provided directly but not used for calculations unless the object
+        # is instantiated using from_rj() method.
+        
+        if self._Rx_ is None:
+            self._Rx_ = kwargs.get("R_jx", 0)  
 
-        self.C_sum = C_sum
+        if self._Rj_ is None:
+            self._Rj_ = kwargs.get("R_j", 0)
+
         self.C_g = C_g
-        self.C_k = C_k
         self.C_xy = C_xy
         self.res_ro = res_ro
-        
-        # Additional parameters
         self.kappa = kwargs.get("kappa", self.res_ro.kappa_ext()) # External coupling rate
+
+        # scqubits parameters
         self.ng = kwargs.get("ng", 0.3)     # Offset charge
         self.ncut = kwargs.get("ncut", 8)  # Number of states to truncate the Hilbert space
         self.truncated_dim = kwargs.get("truncated_dim", 8) # Number of states to truncate the Hilbert space
 
-        # Instantiate the qubit model
+        # Instantiate the scqubits model
         if inst_model:
             self.qmodel = scq.Transmon(
                 EJ=self.Ej() / 1e9,
@@ -77,9 +86,19 @@ class transmon(circuit):
                 ncut=self.ncut,
                 truncated_dim=self.truncated_dim,
             )
-
-        # super parameters
-        self._C_ = C_sum
+ 
+        # super (circuit) parameters 
+        self._C_ = e_0**2 / (2 * self._ec_) / h_0
+        self._L_ = h_0 / (2 * e_0 * self.Ic())
+        self._R_ = self.Rj()
+    @classmethod
+    def from_Csum(cls, C_sum: float, **kwargs):
+        """
+        Initialize transmon from total capacitance C_sum.
+        """
+        ec = e_0**2 / (2 * C_sum) / h_0 # https://arxiv.org/pdf/cond-mat/0703002 eq. 2.1*
+        ej = kwargs.get("E_j", 0.0)
+        return cls(E_j=ej, E_c=ec, **kwargs)
 
     @classmethod
     def from_ic(cls, i_c: float, **kwargs):
@@ -93,12 +112,23 @@ class transmon(circuit):
     def from_rj(cls, R_j: float, **kwargs):
         """
         Initialize transmon from junction resistance R_j.
+        The saved junction resistance is R_j, but the effective resistance 
+        used to calculate the qubit properties is R_j - R_jx.
         """
-        mat = kwargs.get("mat", sc_metal(1.14, 20e-3))
-        r_jx = kwargs.get("R_jx", 0.0)
-        i_c = R_to_Ic(R_j - r_jx, mat=mat)
+        cls._Rx_ = kwargs.get("R_jx", 0.0)
+        cls._Rj_ = R_j + cls._Rx_
+
+        mat = kwargs.get("mat", sc_metal(1.14, 25e-3))
+
+        E_c = kwargs.get("E_c", None)
+        if E_c is None:
+            C_sum = kwargs.get("C_sum", None)
+            assert C_sum is not None, "C_sum must be provided if E_c is not."
+            E_c = e_0**2 / (2 * C_sum) / h_0
+
+        i_c = R_to_Ic(R_j + cls._Rx_, mat=mat)
         E_j = i_c / (2 * e_0 * 2 * pi)
-        return cls(E_j=E_j, **kwargs)
+        return cls(E_j=E_j, E_c=E_c, **kwargs)
 
     @classmethod
     def from_f01(cls, f01: float, **kwargs):
@@ -108,7 +138,12 @@ class transmon(circuit):
         This uses the approximation f01 = sqrt(8 * Ej * Ec) - Ec to find the
         required Ej for a given Ec.
         """
-        C_sum = kwargs.get("C_sum", 60e-15)
+
+        E_c = kwargs.get("E_c", None)
+        if E_c is None:
+            C_sum = kwargs.get("C_sum", None)
+            assert C_sum is not None, "C_sum must be provided if E_c is not."
+            E_c = e_0**2 / (2 * C_sum) / h_0
 
         # Calculate Ec from C_sum
         ec = e_0**2 / (2 * C_sum) / h_0
@@ -134,25 +169,25 @@ class transmon(circuit):
         # return (self.f01()*sqrt(self.C()))**-2
 
     def Ic(self):
-        return self.ej* 2 * e_0 * (2 * pi)
+        return self._ej_ * 2 * e_0 * (2 * pi)
 
     def Rj(self):
         """
         Total junction resistance
         """
-        return self.R_j + self.R_jx
+        return self._Rj_ + self._Rx_
 
     def Ec(self):
         """
         Capacitive energy
         """
-        return self.ec
+        return self._ec_
 
     def Ej(self):
         """
         Josephson energy
         """
-        return self.ej
+        return self._ej_
 
     def g01(self):
         """
@@ -169,11 +204,11 @@ class transmon(circuit):
         
         https://arxiv.org/pdf/cond-mat/0703002 eq. 3.1*
         """
-        
+        C_sum = self.C()
         w_r     = self.res_ro.w0()
         hbar    = h_0 / (2 * pi)
         C_r     = self.res_ro.C()
-        beta    = self.C_g / (self.C_g + self.C_sum)
+        beta    = self.C_g / (self.C_g + C_sum)
         Vrms    = sqrt(hbar * w_r / (2 * C_r))
         
         return (
@@ -216,18 +251,12 @@ class transmon(circuit):
             * self.chi() ** 2
             / (gamma_1 * (self.kappa**2 / 4 + self.chi() ** 2))
         )
-
-    def f0(self):
-        return self.f01()
     
     def delta(self):
         """
         Frequency detuning
         """
         return abs(self.res_ro.f0() - self.f01())
-
-    def C(self):
-        return self.C_sum
 
     def T1_max(self):
         """
@@ -241,10 +270,10 @@ class transmon(circuit):
             "f_02 = \t%3.2f GHz \ng_01 = \t%3.2f MHz \nchi =\t%3.2f MHz \nT1_max =\t%3.2f us\n"
             "alpha =\t%3.2f MHz"
             % (
-                self.Ec() * 1e-6,
-                self.Ej() * 1e-9,
+                self._ec_ * 1e-6,
+                self._ej_ * 1e-9,
                 self.Ic() * 1e9,
-                self.Ej() / self.Ec(),
+                self._ej_ / self._ec_,
                 self.f01() * 1e-9,
                 self.f02() * 1e-9,
                 self.g01() * 1e-6,
@@ -292,13 +321,13 @@ class tunable_transmon(transmon):
         """
         Josephson energy for the first junction
         """
-        return self.Ej() * (1 + self.d) / 2
+        return self._ej_ * (1 + self.d) / 2
 
     def Ej2(self):
         """
         Josephson energy for the second junction
         """
-        return self.Ej() * (1 - self.d) / 2
+        return self._ej_ * (1 - self.d) / 2
 
     def Ic1(self):
         """

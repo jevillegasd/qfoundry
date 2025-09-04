@@ -175,8 +175,6 @@ class cpw:
             + (2 * (w + s) / (w + 2 * s)) * np.log(s / (w + s))
         )
 
-        # print g, a, b, c , d
-
         L_k = (
             mu_0 * (self.Lambda_L**2) / ((d * w))
         )  # Equation (2) in [1], Qualitatively, in the limit S << W [...] the kinetic contribution reduces to Lk = mu_0*Lambda_L^2/W
@@ -396,9 +394,12 @@ class cpw_resonator(circuit):
 
         wn = 2 * np.pi * frequency * n  # Angular frequency of the resonator mode
         self.Cp = (Ck + Cg) / (1 + wn**2 * (Ck + Cg) ** 2 * R_L**2) # https://arxiv.org/pdf/0807.4094 (Wallraff2008) [15]
-        self.length = self._get_length_(
-            frequency, self.Cp , n=n
-        )/ self.length_f
+        assert(self.length is not None or frequency is not None)
+
+        if self.length is None:
+            self.length = self._get_length_(
+                frequency, self.Cp , n=n
+            )/ self.length_f
 
         # Wallraff et al. (2008) Eq. (11): L = 2*L_l*l/(n*π)²
         self._L_ = (
@@ -443,19 +444,15 @@ class cpw_resonator(circuit):
         wg = kwargs.get("wg", cpw(11.7, 0.1, 12, 6, alpha=2.4e-2))
         length_f = kwargs.get("length_f", 2) 
         n = kwargs.get("n", 1)
-
         cls.length = length
-        
         _Ck_ = kwargs.get("Cg", 0.0) + kwargs.get("Ck", 0.0)
         Cp = _Ck_ # Coupling capacitance approximation for Ck*w << 1
 
         C = wg.C_m * length*length_f / 2 + Cp
         L = (
             2 * wg.L * length*length_f / (n * np.pi) ** 2
-        )  
-        
+        )   
         f0 = 1 / (2 * np.pi * np.sqrt(L * C))
-        print(f0*1e-9)
         return cls(frequency=f0, **kwargs)
     
     @classmethod
