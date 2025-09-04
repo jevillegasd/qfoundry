@@ -76,7 +76,7 @@ class sc_metal:
         return self.sc_gap() / e_0
 
 
-def Ic_to_R(Ic, mat=sc_metal(1.14, T=20e-3), R_jx=0.0):
+def Ic_to_R(Ic, mat=sc_metal(1.14, T=20e-3)):
     """
     Convert Ic to R.
     R = pi*Delta/(2*e_0*Ic)*tanh(Delta/(2*k_B*T))
@@ -86,7 +86,6 @@ def Ic_to_R(Ic, mat=sc_metal(1.14, T=20e-3), R_jx=0.0):
 
     return (
         pi * mat.sc_gap() / (2 * e_0 * Ic) * tanh(mat.sc_gap() / (2 * k_B * mat.T))
-        - R_jx
     )
 
 

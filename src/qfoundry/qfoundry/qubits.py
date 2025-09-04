@@ -90,7 +90,7 @@ class transmon(circuit):
         # super (circuit) parameters 
         self._C_ = e_0**2 / (2 * self._ec_) / h_0
         self._L_ = h_0 / (2 * e_0 * self.Ic())
-        self._R_ = self.Rj()
+        self._R_ = self._Rj_ + self._Rx_
     @classmethod
     def from_Csum(cls, C_sum: float, **kwargs):
         """
@@ -106,6 +106,10 @@ class transmon(circuit):
         Initialize transmon from critical current I_c.
         """
         E_j = i_c / (2 * e_0 * 2 * pi)
+        self._Rx_ = kwargs.get("R_jx", 0.0)
+        self._Rj_ = Ic_to_R(i_c, mat=kwargs.get("mat", sc_metal(1.14, 25e-3))) - self._Rx_
+        kwargs["R_j"] = self._Rj_
+        kwargs["R_jx"] = self._Rx_
         return cls(E_j=E_j, **kwargs)
 
     @classmethod
@@ -116,7 +120,7 @@ class transmon(circuit):
         used to calculate the qubit properties is R_j - R_jx.
         """
         cls._Rx_ = kwargs.get("R_jx", 0.0)
-        cls._Rj_ = R_j + cls._Rx_
+        cls._Rj_ = R_j
 
         mat = kwargs.get("mat", sc_metal(1.14, 25e-3))
 
@@ -126,7 +130,7 @@ class transmon(circuit):
             assert C_sum is not None, "C_sum must be provided if E_c is not."
             E_c = e_0**2 / (2 * C_sum) / h_0
 
-        i_c = R_to_Ic(R_j + cls._Rx_, mat=mat)
+        i_c = R_to_Ic(cls._Rj_ + cls._Rx_, mat=mat)
         E_j = i_c / (2 * e_0 * 2 * pi)
         return cls(E_j=E_j, E_c=E_c, **kwargs)
 
@@ -138,7 +142,9 @@ class transmon(circuit):
         This uses the approximation f01 = sqrt(8 * Ej * Ec) - Ec to find the
         required Ej for a given Ec.
         """
-
+        cls._Rx_ = kwargs.get("R_jx", 0.0)
+        cls._Rj_ = kwargs.get("R_j", None)
+        
         E_c = kwargs.get("E_c", None)
         if E_c is None:
             C_sum = kwargs.get("C_sum", None)
@@ -150,8 +156,15 @@ class transmon(circuit):
 
         # Calculate required Ej from f01 and Ec
         ej = (f01 + ec) ** 2 / (8 * ec)
+        ic = ej * 2 * e_0 * (2 * pi)
 
-        return cls(E_j=ej, **kwargs)
+        if cls._Rj_ is None: # The resistance value is only calculated if not provided
+            cls._Rj_ = Ic_to_R(ic, mat=kwargs.get("mat", sc_metal(1.14, 25e-3))) - cls._Rx_
+
+        print(f"Calculated Ej: {ej*1e-9:.3f} GHz, Ec: {ec*1e-6:.3f} MHz, Ic: {ic*1e9:.3f} nA, Rj: {cls._Rj_+cls._Rx_:.3f} Ohm")
+        kwargs["R_j"] = cls._Rj_
+        kwargs["R_jx"] = cls._Rx_
+        return cls(E_j=ej, E_c=ec, **kwargs)
 
     def alpha(self):
         """
@@ -170,12 +183,6 @@ class transmon(circuit):
 
     def Ic(self):
         return self._ej_ * 2 * e_0 * (2 * pi)
-
-    def Rj(self):
-        """
-        Total junction resistance
-        """
-        return self._Rj_ + self._Rx_
 
     def Ec(self):
         """
