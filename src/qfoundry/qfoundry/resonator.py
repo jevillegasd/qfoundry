@@ -432,6 +432,8 @@ class cpw_resonator(circuit):
         Create a resonator from a given length.
         
         Uses the distributed LC model from Wallraff et al. (2008) Eq. (11-12).
+        Iteratively solves for the correct frequency when coupling capacitances
+        are large, accounting for the frequency dependence of Cp.
         
         Parameters
         ----------
@@ -444,16 +446,152 @@ class cpw_resonator(circuit):
         wg = kwargs.get("wg", cpw(11.7, 0.1, 12, 6, alpha=2.4e-2))
         length_f = kwargs.get("length_f", 2) 
         n = kwargs.get("n", 1)
+        Ck = kwargs.get("Ck", 0.0)
+        Cg = kwargs.get("Cg", 0.0)
+        R_L = kwargs.get("R_L", 50.0)
         cls.length = length
-        _Ck_ = kwargs.get("Cg", 0.0) + kwargs.get("Ck", 0.0)
-        Cp = _Ck_ # Coupling capacitance approximation for Ck*w << 1
-
-        C = wg.C_m * length*length_f / 2 + Cp
-        L = (
-            2 * wg.L * length*length_f / (n * np.pi) ** 2
-        )   
-        f0 = 1 / (2 * np.pi * np.sqrt(L * C))
-        return cls(frequency=f0, **kwargs)
+        
+        # Total nominal coupling capacitance
+        C_coupling = Ck + Cg
+        
+        # For small coupling capacitances, use simple approximation
+        if C_coupling < 1e-15:  # Less than 1 fF
+            Cp = C_coupling
+            C = wg.C_m * length * length_f / 2 + Cp
+            L = 2 * wg.L * length * length_f / (n * np.pi) ** 2
+            f0 = 1 / (2 * np.pi * np.sqrt(L * C))
+            return cls(frequency=f0, **kwargs)
+        
+        # For large coupling capacitances, iteratively solve for frequency
+        # Start with weak coupling approximation
+        f0_guess = 1 / (2 * np.pi * np.sqrt(
+            (2 * wg.L * length * length_f / (n * np.pi) ** 2) * 
+            (wg.C_m * length * length_f / 2 + C_coupling)
+        ))
+        
+        # Iterative solution for frequency-dependent Cp
+        max_iterations = 50
+        tolerance = 1e-6  # Relative frequency tolerance
+        
+        for iteration in range(max_iterations):
+            wn = 2 * np.pi * f0_guess * n
+            
+            # Calculate frequency-dependent Cp (Wallraff Eq. 15)
+            Cp = C_coupling / (1 + wn**2 * C_coupling**2 * R_L**2)
+            
+            # Calculate new frequency with corrected Cp
+            C = wg.C_m * length * length_f / 2 + 2 * Cp  # Factor of 2 for series coupling
+            L = 2 * wg.L * length * length_f / (n * np.pi) ** 2
+            f0_new = 1 / (2 * np.pi * np.sqrt(L * C))
+            
+            # Check for convergence
+            relative_error = abs(f0_new - f0_guess) / f0_guess
+            if relative_error < tolerance:
+                break
+                
+            f0_guess = f0_new
+            
+        if iteration == max_iterations - 1:
+            import warnings
+            warnings.warn(f"Frequency iteration did not converge after {max_iterations} iterations. "
+                         f"Final relative error: {relative_error:.2e}")
+        
+        return cls(frequency=f0_new, **kwargs)
+    
+    @classmethod
+    def from_length_exact(cls, length: float, **kwargs):
+        """
+        Create a resonator from a given length using exact root finding.
+        
+        Solves the implicit equation for frequency accounting for the full
+        frequency dependence of Cp using scipy.optimize.fsolve.
+        This is more robust than the iterative method for strongly coupled cases.
+        
+        Parameters
+        ----------
+        length : float
+            Physical length of the resonator in m
+        **kwargs
+            Additional parameters passed to __init__
+        """
+        from scipy.optimize import fsolve
+        
+        wg = kwargs.get("wg", cpw(11.7, 0.1, 12, 6, alpha=2.4e-2))
+        length_f = kwargs.get("length_f", 2) 
+        n = kwargs.get("n", 1)
+        Ck = kwargs.get("Ck", 0.0)
+        Cg = kwargs.get("Cg", 0.0)
+        R_L = kwargs.get("R_L", 50.0)
+        cls.length = length
+        
+        C_coupling = Ck + Cg
+        
+        # For small coupling capacitances, use simple calculation
+        if C_coupling < 1e-15:  # Less than 1 fF
+            Cp = C_coupling
+            C = wg.C_m * length * length_f / 2 + Cp
+            L = 2 * wg.L * length * length_f / (n * np.pi) ** 2
+            f0 = 1 / (2 * np.pi * np.sqrt(L * C))
+            return cls(frequency=f0, **kwargs)
+        
+        def frequency_equation(f0):
+            """
+            Implicit equation: f0 = 1/(2π√LC) where C depends on f0 through Cp.
+            Returns zero when the equation is satisfied.
+            """
+            wn = 2 * np.pi * f0 * n
+            Cp = C_coupling / (1 + wn**2 * C_coupling**2 * R_L**2)
+            
+            C = wg.C_m * length * length_f / 2 + 2 * Cp
+            L = 2 * wg.L * length * length_f / (n * np.pi) ** 2
+            
+            f0_calculated = 1 / (2 * np.pi * np.sqrt(L * C))
+            return f0 - f0_calculated
+        
+        # Initial guess using weak coupling approximation
+        f0_guess = 1 / (2 * np.pi * np.sqrt(
+            (2 * wg.L * length * length_f / (n * np.pi) ** 2) * 
+            (wg.C_m * length * length_f / 2 + C_coupling)
+        ))
+        
+        # Solve the implicit equation
+        try:
+            f0_solution = fsolve(frequency_equation, f0_guess, xtol=1e-12)[0]
+        except Exception as e:
+            import warnings
+            warnings.warn(f"Root finding failed: {e}. Using iterative method as fallback.")
+            return cls.from_length(length, **kwargs)
+        
+        return cls(frequency=f0_solution, **kwargs)
+        
+    @classmethod
+    def coupling_strength_parameter(cls, Ck: float, Cg: float, frequency: float, R_L: float = 50.0):
+        """
+        Calculate the coupling strength parameter ωC_coupling*R_L.
+        
+        This parameter determines whether the weak coupling approximation is valid:
+        - << 1: Weak coupling, simple Cp ≈ Ck + Cg approximation is accurate
+        - >> 1: Strong coupling, frequency-dependent Cp calculation needed
+        
+        Parameters
+        ----------
+        Ck : float
+            Coupling capacitance to feedline in F
+        Cg : float
+            Coupling capacitance to ground in F  
+        frequency : float
+            Frequency in Hz
+        R_L : float, default=50.0
+            Load resistance in Ohms
+            
+        Returns
+        -------
+        float
+            Coupling strength parameter ωC_total*R_L
+        """
+        C_coupling = Ck + Cg
+        omega = 2 * np.pi * frequency
+        return omega * C_coupling * R_L
     
     @classmethod
     def quarter_wave(cls, frequency: float, **kwargs):
