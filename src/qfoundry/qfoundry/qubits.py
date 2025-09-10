@@ -14,6 +14,8 @@ from scipy.constants import e as e_0
 from scipy.constants import Planck as h_0
 
 from numpy import sqrt, pi, tanh, abs
+from numpy import diag, ones, arange
+from scipy.linalg import eigh
 import inspect
 
 class transmon(circuit):
@@ -132,7 +134,9 @@ class transmon(circuit):
 
         i_c = R_to_Ic(cls._Rj_ + cls._Rx_, mat=mat)
         E_j = i_c / (2 * e_0 * 2 * pi)
-        return cls(E_j=E_j, E_c=E_c, **kwargs)
+        kwargs["E_c"] = E_c
+        kwargs["E_j"] = E_j
+        return cls(**kwargs)
 
     @classmethod
     def from_f01(cls, f01: float, **kwargs):
@@ -203,7 +207,7 @@ class transmon(circuit):
         https://arxiv.org/pdf/cond-mat/0703002 eq. 3.3
 
         g01 = 2 * beta * e * Vrms / hbar
-        where beta is the participation ratio (beta ~= C_g/ (C_g + C_sum)) [drive capaictance over total capacitance]
+        where beta is the participation ratio (beta ~= C_g/ (C_g + C_sum)) [coupling capaictance over total capacitance]
         e is the elementary charge,
         Vrms is the root mean square voltage across the resonator, and hbar is the reduced Planck's constant.
         The Vrms can be calculated from the resonator frequency and its capacitance as
@@ -222,12 +226,35 @@ class transmon(circuit):
             2 * beta * e_0 * Vrms / h_0 # Also changed units to Hz
         )
 
+    def n01(self):
+        """
+        Charge matrix element between the ground and first excited state
+        """
+        n01 = (self.Ej()/(8*self.Ec()))**0.25
+        return n01
+    
+    def n_matrix(self, N=20, nlevels=10):
+        """
+        Charge matrix of the qubit
+        N: ncharge basis truncation
+        """
+
+        ec = self.Ec()
+        ej = self.Ej()
+        n = arange(-N, N+1)
+        H = diag(4 * ec * n**2) - 0.5 * ej * (diag(ones(2*N), 1) + diag(ones(2*N), -1))
+        eigvals, eigvecs = eigh(H)
+        n_op = diag(n)
+        n_matrix = eigvecs.T @ n_op @ eigvecs
+
+        return n_matrix[:nlevels, :nlevels], eigvals[:nlevels] # Energies same units as Ec and Ej (Hz)
+
     def chi(self):
         """
         Dispersive shift
         https://arxiv.org/pdf/1904.06560 eq. 146
         """
-        return (self.g01() ** 2) / (self.delta()) * (1 / (1 + self.delta() / self.alpha()))
+        return -(self.g01() ** 2) / (self.delta()) * (1 / (1 + self.delta() / self.alpha()))
 
     def f01(self):
         """
