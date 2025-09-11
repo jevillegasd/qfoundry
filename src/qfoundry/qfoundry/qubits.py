@@ -174,6 +174,8 @@ class transmon(circuit):
         """
         Anharmonicity
         """
+        if self.qmodel is None:
+            return -self.Ec() * 1e9
         return self.qmodel.anharmonicity() * 1e9
 
     def L(self, phi=0.0):
@@ -200,14 +202,37 @@ class transmon(circuit):
         """
         return self._ej_
 
+    def nj(self,j):
+        """
+        Charge matrix element between states j+1 and j
+        |< j + 1 | nˆ | j >| ≈
+        https://arxiv.org/pdf/cond-mat/0703002 eq 3.4
+        """
+        n_j_annalytical = np.sqrt((1+j)/2)*(self.Ej() / (8*self.Ec()))**(1/4)
+        return n_j_annalytical
+    
+    def g(self,j):
+        """
+        Coupling sytrength between states j and j+1
+        """
+        nj = self.nj(j)
+
+        C_sum = self.C()
+        f_r     = self.res_ro.f0() # Resonator angular frequency
+        C_r     = self.res_ro.C() # Resonator capacitance
+        beta    = self.C_g / (C_sum) # Participation ratio
+        V_zpf    = sqrt(h_0 * f_r / (2 * C_r)) # Zero point fluctuation voltage
+
+        g_j = beta * V_zpf * nj * e_0/h_0
+        return g_j
+    
     def g01(self):
         """
         Coupling strength between the qubit and the resonator (capacitive)
-        https://arxiv.org/pdf/1904.06560 eq. 145
         https://arxiv.org/pdf/cond-mat/0703002 eq. 3.3
 
-        g01 = 2 * beta * e * Vrms / hbar
-        where beta is the participation ratio (beta ~= C_g/ (C_g + C_sum)) [coupling capaictance over total capacitance]
+        g01 ~ 2 * beta * e * Vrms * n01 / h
+        where beta is the participation ratio (beta ~= C_g/ (C_sum)) [coupling capaictance over total capacitance]
         e is the elementary charge,
         Vrms is the root mean square voltage across the resonator, and hbar is the reduced Planck's constant.
         The Vrms can be calculated from the resonator frequency and its capacitance as
@@ -216,21 +241,18 @@ class transmon(circuit):
         https://arxiv.org/pdf/cond-mat/0703002 eq. 3.1*
         """
         C_sum = self.C()
-        w_r     = self.res_ro.w0()
-        hbar    = h_0 / (2 * pi)
-        C_r     = self.res_ro.C()
-        beta    = self.C_g / (self.C_g + C_sum)
-        Vrms    = sqrt(hbar * w_r / (2 * C_r))
-        
-        return (
-            2 * beta * e_0 * Vrms / h_0 # Also changed units to Hz
-        )
+        f_r     = self.res_ro.f0() # Resonator angular frequency
+        C_r     = self.res_ro.C() # Resonator capacitance
+        V_zpf    = sqrt(h_0 * f_r / (2 * C_r)) # Zero point fluctuation voltage
+        beta    = self.C_g / (C_sum) # Participation ratio
+        return 2* beta * e_0 * V_zpf * self.n01() / h_0  # in Hz
+        # return 2 * beta * e_0 * V_zpf * self.n_matrix()[0,1] / h_0 # Numerical alternative for n01
 
     def n01(self):
         """
-        Charge matrix element between the ground and first excited state
+        Estimated first charge matrix element between the ground and first excited state
         """
-        n01 = (self.Ej()/(8*self.Ec()))**0.25
+        n01 = (self.Ej()/(8*self.Ec()))**0.25 * 1/ sqrt(2)  # https://arxiv.org/pdf/cond-mat/0703002 eq 3.4
         return n01
     
     def n_matrix(self, N=20, nlevels=10):
@@ -238,7 +260,6 @@ class transmon(circuit):
         Charge matrix of the qubit
         N: ncharge basis truncation
         """
-
         ec = self.Ec()
         ej = self.Ej()
         n = arange(-N, N+1)
@@ -260,8 +281,10 @@ class transmon(circuit):
         """
         Qubit 01 frequency
         """
+        if self.qmodel is None:
+            return (sqrt(8*self.Ej()*self.Ec())**0.5-self.Ec())
         return self.qmodel.E01() * 1e9
-        # return ((8*self.Ej()*self.Ec())**0.5-self.Ec())
+
 
     def f12(self):
         """

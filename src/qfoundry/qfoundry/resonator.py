@@ -385,31 +385,34 @@ class cpw_resonator(circuit):
         **kwargs
     ):
         self.wg = wg
-        self.length_f = length_f  # length factor: 4: quarter wavelength resonator
-        self.n = n  # mode number
-        self.Cin = Ck
-
+        
         if frequency is None:
             raise ValueError("Frequency must be provided, or object instance must be created with a length using from_length method.")
 
-        wn = 2 * np.pi * frequency * n  # Angular frequency of the resonator mode
-        self.Cp = (Ck + Cg) / (1 + wn**2 * (Ck + Cg) ** 2 * R_L**2) # https://arxiv.org/pdf/0807.4094 (Wallraff2008) [15]
-        assert(self.length is not None or frequency is not None)
+        if int(length_f) not in [1, 2, 4]:
+            raise ValueError("length_f must be 1 (full-wave), 2 (half-wave) or 4 (quarter-wave)")
+        self.length_f = length_f  # length factor: 4: quarter wavelength resonator (short in one end)
+        self.n = n  # mode number
+        self.Cin = Ck
 
+        wn = 2 * np.pi * frequency * n  # Angular frequency of the resonator mode
+        Cp = (Ck + Cg) / (1 + wn**2 * length_f *(Ck + Cg) ** 2 * R_L**2) # https://arxiv.org/pdf/0807.4094 (Wallraff2008) [15]
+        
+        self.Cp = Cp # Effective coupling capacitance including load impedance effect
         if self.length is None:
             self.length = self._get_length_(
-                frequency, self.Cp , n=n
+                frequency, Cp , n = n
             )/ self.length_f
 
         # Wallraff et al. (2008) Eq. (11): L = 2*L_l*l/(n*π)²
         self._L_ = (
-            2 * self.wg.L * self.length*self.length_f / (self.n * np.pi) ** 2
+            2 * self.wg.L * self.length * self.length_f / (self.n * 2 * np.pi) ** 2 # The factor of 1/2**2 cancels out when length_f=2, like in Wallraff Eq. 11
         ) 
         # Wallraff et al. (2008) Eq. (12): C = C_l*l/2 + C_c
-        self._C_ = (self.wg.C_m /2 * self.length*self.length_f  + 2*self.Cp)
+        self._C_ = (self.wg.C_m /2 * self.length * self.length_f + self.Cp)
 
-        self._R_ = wg.Z_0k / (self.wg.alpha * self.length * self.length_f)
-         # Wallraff et al. (2008) Eq. (13): R = Z0/(alpha*l)
+        self._R_ = wg.Z_0k / (self.wg.alpha * self.length )
+         # Wallraff et al. (2008) Eq. (13): R = Z0/(alpha*l
 
         # Correct for the coupling capacitance 
         self._R_ += (1 + wn**2 * (Ck + Cg) ** 2 * R_L**2) / (
@@ -655,7 +658,8 @@ class cpw_resonator(circuit):
 
     def _get_length_(self, f0, Cp: float = 0.0, n: int = 1):
         from scipy.constants import c as c0
-
+        # Solve quadratic equation for length when Cp is significant
+        wg = self.wg
         def solve_quad(a, b, c):
             return (-b + np.sqrt(b**2 - 4 * a * c)) / (2 * a), (
                 -b - np.sqrt(b**2 - 4 * a * c)
@@ -663,15 +667,14 @@ class cpw_resonator(circuit):
 
         # If Cg + Ck == 0, the length is calculated using only the cpw
         if Cp > 1e-20:
-            C_l = self.wg.C_m
-            L_l = self.wg.L
-            wn = 2 * np.pi * f0 * n 
-            Ls = 2* L_l / (self.n * np.pi) ** 2
-
-            l1, l2 = solve_quad(C_l/2 * Ls * wn**2, 2*Ls * Cp * wn**2, -1)
+            C_l = wg.C_m
+            L_l = wg.L
+            wn = 2 * np.pi * f0 * n # Angular frequency of the resonator mode
+            Ls = 2 * L_l / (2 * self.n * np.pi) ** 2 # The factor of 1/2**2 cancels out when length_f=2, like in Wallraff Eq. 11
+            l1, l2 = solve_quad(C_l/2 * Ls * wn**2, Ls * Cp * wn**2, -1)
             return max(l1, l2)
         else:
-            return ((c0) / ((self.wg.epsilon_ek**0.5))) * (1 / (f0 * n))
+            return ((c0) / (f0 * n * (wg.epsilon_ek**0.5)))
 
     def Z_TL(self, f: np.array):
         fn = self.w0() / (2 * np.pi)
