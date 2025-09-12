@@ -8,9 +8,53 @@ Some formulas reference:
 from scipy.constants import elementary_charge as e_0
 from scipy.constants import h, hbar
 from scipy.constants import Boltzmann as k_B
-from numpy import sqrt, pi, tanh
+from numpy import sqrt, pi, tanh, ix_
+from numpy.linalg import inv
+
 from qfoundry.resonator import circuit
 
+# Helper function for capacitance operations
+def parallel(Za, Zb):
+    return 1 / (1/Za + 1/Zb)
+
+def series(Za,Zb):
+    return Za + Zb
+
+def parallel_capacitance(Ca, Cb):
+    return series(Ca, Cb)
+
+def series_capacitance(Ca, Cb):
+    return parallel(Ca, Cb)
+
+def Schur_complement(C, indices_A, indices_B):
+    """
+    Calculate the Schur complement of a capacitance matrix C.
+    C: Full capacitance matrix
+    indices_A: Indices of the subsystem A to keep
+    indices_B: Indices of the subsystem B to eliminate
+    Returns the effective capacitance matrix for subsystem A.
+    """
+
+    C_AA = C[ix_(indices_A, indices_A)]
+    C_BB = C[ix_(indices_B, indices_B)]
+    C_AB = C[ix_(indices_A, indices_B)]
+    C_BA = C[ix_(indices_B, indices_A)]
+
+    C_eff = C_AA - C_AB @ inv(C_BB) @ C_BA
+    return C_eff
+
+
+def delta_cap(C12, C13, C23, C3):
+    """
+    Calculate the effective coupling capacitance between nodes 1 and 2
+    using the delta-to-wye transformation.
+    C12: Capacitance between nodes 1 and 2
+    C13: Capacitance between nodes 1 and 3
+    C23: Capacitance between nodes 2 and 3
+    C3: Capacitance of node 3 to ground
+    """
+
+    return C12 + (C13*C23)/C3 # Neglects ground capacitance of nodes 1 and 2
 
 def Cs_to_E(C):
     return e_0**2 / (2 * C) / h

@@ -396,20 +396,30 @@ class cpw_resonator(circuit):
         self.Cin = Ck
 
         wn = 2 * np.pi * frequency * n  # Angular frequency of the resonator mode
-        Cp = (Ck + Cg) / (1 + wn**2 * length_f *(Ck + Cg) ** 2 * R_L**2) # https://arxiv.org/pdf/0807.4094 (Wallraff2008) [15]
+        
+        if length_f in [1, 2]:
+            eff_k = 1 # Full coupling at antinode
+            Cp_factor = 2
+        else:  # Quarter-wave resonator
+            eff_k = 0  # Negligible contribution of shorted end to coupling capacitance
+            Cp_factor = 2 # Should be 1 for single count of antinode capacitance??
+        C_k = eff_k*Ck + Cg
+
+        Cp = C_k / (1 + wn**2 * C_k ** 2 * R_L**2) # https://arxiv.org/pdf/0807.4094 (Wallraff2008) [15]
         
         self.Cp = Cp # Effective coupling capacitance including load impedance effect
         if self.length is None:
             self.length = self._get_length_(
-                frequency, Cp , n = n
+                frequency, Cp*Cp_factor , n = n
             )/ self.length_f
 
         # Wallraff et al. (2008) Eq. (11): L = 2*L_l*l/(n*π)²
         self._L_ = (
-            2 * self.wg.L * self.length * self.length_f / (self.n * 2 * np.pi) ** 2 # The factor of 1/2**2 cancels out when length_f=2, like in Wallraff Eq. 11
-        ) 
+            2 * self.wg.L * self.length / (self.n * 2 * np.pi) ** 2  # The factor of 1/2**2 cancels out when length_f=2, like in Wallraff Eq. 11
+        ) * self.length_f
+
         # Wallraff et al. (2008) Eq. (12): C = C_l*l/2 + C_c
-        self._C_ = (self.wg.C_m /2 * self.length * self.length_f + self.Cp)
+        self._C_ = (self.wg.C_m /2 * self.length* self.length_f  + self.Cp*Cp_factor)
 
         self._R_ = wg.Z_0k / (self.wg.alpha * self.length )
          # Wallraff et al. (2008) Eq. (13): R = Z0/(alpha*l
@@ -449,49 +459,55 @@ class cpw_resonator(circuit):
         wg = kwargs.get("wg", cpw(11.7, 0.1, 12, 6, alpha=2.4e-2))
         length_f = kwargs.get("length_f", 2) 
         n = kwargs.get("n", 1)
-        Ck = kwargs.get("Ck", 0.0)
-        Cg = kwargs.get("Cg", 0.0)
+        Ck = kwargs.get("Ck", 0.0) # Coupling capacitance to feedline in F
+        Cg = kwargs.get("Cg", 0.0) # Coupling capacitance to at antinode in F
         R_L = kwargs.get("R_L", 50.0)
         cls.length = length
         
         # Total nominal coupling capacitance
-        C_coupling = Ck + Cg
+         # Coupling efficiency factor, 1 for full coupling, <1 for partial eff_k = V(x)^2/ max|V(x)|^2
         
-        # For small coupling capacitances, use simple approximation
-        if C_coupling < 1e-15:  # Less than 1 fF
-            Cp = C_coupling
-            C = wg.C_m * length * length_f / 2 + Cp
-            L = 2 * wg.L * length * length_f / (n * np.pi) ** 2
-            f0 = 1 / (2 * np.pi * np.sqrt(L * C))
-            return cls(frequency=f0, **kwargs)
-        
+        if length_f in [1, 2]:
+            eff_k = 1 # Full coupling at antinode
+            Cp_factor = 2
+        else:  # Quarter-wave resonator
+            eff_k = 0  # Negligible contribution of shorted end to coupling capacitance
+            Cp_factor = 2 # Should be 1 for single count of antinode capacitance??
+
+        C_k = eff_k*Ck + Cg
         # For large coupling capacitances, iteratively solve for frequency
         # Start with weak coupling approximation
+        
+        L = (2 * wg.L * length / (n * 2 * np.pi) ** 2) * length_f
+        C = (wg.C_m * length / 2 * length_f + C_k*Cp_factor)
         f0_guess = 1 / (2 * np.pi * np.sqrt(
-            (2 * wg.L * length * length_f / (n * np.pi) ** 2) * 
-            (wg.C_m * length * length_f / 2 + C_coupling)
+            L * C
         ))
+
+        # For small coupling capacitances, use simple approximation
+        if C_k < 1e-15:  # Less than 1 fF
+            print("Using weak coupling approximation for resonator frequency.")
+            return cls(frequency=f0_guess, **kwargs)
         
         # Iterative solution for frequency-dependent Cp
         max_iterations = 50
-        tolerance = 1e-6  # Relative frequency tolerance
+        tolerance = 1e-7  # Relative frequency tolerance
         
         for iteration in range(max_iterations):
-            wn = 2 * np.pi * f0_guess * n
+            wn = 2 * np.pi * f0_guess
             
             # Calculate frequency-dependent Cp (Wallraff Eq. 15)
-            Cp = C_coupling / (1 + wn**2 * C_coupling**2 * R_L**2)
+            Cp = C_k / (1 + wn**2 * C_k**2 * R_L**2)
             
             # Calculate new frequency with corrected Cp
-            C = wg.C_m * length * length_f / 2 + 2 * Cp  # Factor of 2 for series coupling
-            L = 2 * wg.L * length * length_f / (n * np.pi) ** 2
-            f0_new = 1 / (2 * np.pi * np.sqrt(L * C))
+            C = (wg.C_m * length * length_f)  / 2 + Cp * Cp_factor
+            L = (2 * wg.L * length / (n * 2 * np.pi) ** 2) * length_f
+            f0_new = 1 / (2 * np.pi * np.sqrt(L * C)) 
             
             # Check for convergence
             relative_error = abs(f0_new - f0_guess) / f0_guess
             if relative_error < tolerance:
                 break
-                
             f0_guess = f0_new
             
         if iteration == max_iterations - 1:
@@ -660,6 +676,7 @@ class cpw_resonator(circuit):
         from scipy.constants import c as c0
         # Solve quadratic equation for length when Cp is significant
         wg = self.wg
+
         def solve_quad(a, b, c):
             return (-b + np.sqrt(b**2 - 4 * a * c)) / (2 * a), (
                 -b - np.sqrt(b**2 - 4 * a * c)
@@ -670,7 +687,7 @@ class cpw_resonator(circuit):
             C_l = wg.C_m
             L_l = wg.L
             wn = 2 * np.pi * f0 * n # Angular frequency of the resonator mode
-            Ls = 2 * L_l / (2 * self.n * np.pi) ** 2 # The factor of 1/2**2 cancels out when length_f=2, like in Wallraff Eq. 11
+            Ls = 2 * L_l / (2 * self.n * np.pi) ** 2
             l1, l2 = solve_quad(C_l/2 * Ls * wn**2, Ls * Cp * wn**2, -1)
             return max(l1, l2)
         else:

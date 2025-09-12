@@ -374,6 +374,18 @@ class tunable_transmon(transmon):
             truncated_dim=self.truncated_dim,
         )
 
+    @classmethod # Overrides the parent class method (but is doing the same)
+    def from_ic(cls, i_c: float, **kwargs):
+        """
+        Initialize tunable transmon from critical current I_c.
+        """
+        E_j = i_c / (2 * e_0 * 2 * pi)
+        cls._Rx_ = kwargs.get("R_jx", 0.0)
+        cls._Rj_ = Ic_to_R(i_c, mat=kwargs.get("mat", sc_metal(1.14, 25e-3))) - cls._Rx_
+        kwargs["R_j"] = cls._Rj_
+        kwargs["R_jx"] = cls._Rx_
+        return cls(E_j=E_j, **kwargs)
+    
     def Ej1(self):
         """
         Josephson energy for the first junction
