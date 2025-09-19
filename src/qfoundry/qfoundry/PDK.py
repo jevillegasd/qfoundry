@@ -1,4 +1,5 @@
 # Constants and parameters for the PDK
+from .utils import sc_metal
 class DesignRule:
     """Design rule class containing constants and parameters for the design rules."""
 
@@ -48,6 +49,10 @@ DR_DICING_MARKERS_SPACING = DesignRule(
 
 
 class PDK:
+    """PDK class containing constants and parameters for the design kit.
+    Defaults values corresponf to the updated Qfoundry_PDK
+    """
+    
     def __init__(self):
         """Initialize the PDK with parameters."""
         self.epsilon_r = 11.6883144  # Intrinsic Silicon modified for model
@@ -62,29 +67,26 @@ class PDK:
         self.alpha = 3.165e-3  # Superconductive Loss tangent
 
         """Josephson Junction parameters"""
-        self.jj_rhort = (
-            0.535244811537077e-05  # Josephson Junction R.T. resistivity Ohm*m^2
-        )
-        self.jj_R0 = 4.119856e3  # R.T. Contact probing correction
-        self.jj_rhox = (
-            0  # Josephson Junction resistivity correction (to match measured qubit Ej)
-        )
-        self.jj_gammax = (
-            4.513e-07  # Josephson Junction Capacitance per unit area correction
-        )
+        self.jj_rhort = 0.535244811537077e-05  # Josephson Junction R.T. resistivity Ohm*m^2
+        self.jj_R0 = 4  # R.T. Contact probing correction
+        self.jj_rhox = 0  # Josephson Junction resistivity correction (to match measured qubit Ej)
+        self.jj_gammax = 4.513e-07  # Josephson Junction Capacitance per unit area F/m^2 (used to match measured qubit Ec)
 
-        # Resonator model corrections
-        self.C_mx = 0  # Waveguide capacitance per unit length correction
-        self.C_x = 0.81e-15  # Capacitance correction (from measurements modelling)
+        """Waveguide and resonator model corrections"""
+        self.C_mx = 0  # Waveguide capacitance per unit length correction for waveguides
+        self.C_x = 0.81e-15  # Capacitance correction (from measurements modelling) for resonators
         self.C_b = 0.434e-15  # Capacitance per airbridge
-        self.C_k = 2.25e-15  # Coupling between resonator and feedline.
-        self.C_rg = 0.0  # Capacitance between resonator and ground plane at the qubit coupling point.
+        self.C_k = 2.25e-15  # Default Coupling between resonator and feedline.
+        self.C_rg = 0.0  # Default Capacitance between resonator and ground plane at the qubit coupling point.
 
         self.design_rules = {
             "DR_MIN_WAVEGUIDE_WIDTH": DR_MIN_WAVEGUIDE_WIDTH,
             "DR_MIN_WAVEGUIDE_GAP": DR_MIN_WAVEGUIDE_GAP,
             "DR_MIN_WAVEGUIDE_WIDTH": DR_MIN_WAVEGUIDE_WIDTH,
         }
+        self.material = "Al"  # Default material
+        self.Tc = 1.01  # Critical temperature [K]
+        self.mat_prop = sc_metal(self.Tc, 25e-3)  # At 25 mK
 
     def __str__(self):
         """String representation of the QW_PDK."""

@@ -8,8 +8,8 @@ Some formulas reference:
 from scipy.constants import elementary_charge as e_0
 from scipy.constants import h, hbar
 from scipy.constants import Boltzmann as k_B
-from numpy import sqrt, pi, tanh, ix_
-from numpy.linalg import inv
+from numpy import sqrt, pi, tanh, ix_, eye
+from numpy.linalg import inv, matrix_rank, cond
 
 from qfoundry.resonator import circuit
 
@@ -39,6 +39,28 @@ def Schur_complement(C, indices_A, indices_B):
     C_BB = C[ix_(indices_B, indices_B)]
     C_AB = C[ix_(indices_A, indices_B)]
     C_BA = C[ix_(indices_B, indices_A)]
+
+    # Check that C_AA and C_BB are invertible
+    if matrix_rank(C_AA) < C_AA.shape[0]:
+        print(f"Warning: C_AA is singular with rank {matrix_rank(C_AA)}.")
+
+    if matrix_rank(C_BB) < C_BB.shape[0]:
+        print(f"Warning: C_BB is singular with rank {matrix_rank(C_BB)}.")
+
+    # Numerically the condition number of C_AA
+    cond_num = cond(C_AA)
+    if cond_num > 1e12:
+        # Optionally, we can raise an exception or return None here
+        # Regularize C_AA if ill-conditioned
+        C_AA += eye(*C_AA.shape) * 1e-16 # Small regularization term
+        print(f"Warning: C_AA is ill-conditioned with condition number {cond_num:.2e}. Regularization applied 0.1 fF.")
+
+    cond_num = cond(C_BB)
+    if cond_num > 1e12:
+        # Optionally, we can raise an exception or return None here
+        # Regularize C_BB if ill-conditioned
+        C_BB += eye(*C_BB.shape) * 1e-16 # Small regularization term
+        print(f"Warning: C_BB is ill-conditioned with condition number {cond_num:.2e}. Regularization applied 0.1 fF.")
 
     C_eff = C_AA - C_AB @ inv(C_BB) @ C_BA
     return C_eff

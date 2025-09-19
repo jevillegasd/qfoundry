@@ -334,7 +334,7 @@ class cpw_resonator(circuit):
     frequency : float
         Target resonance frequency in Hz
     length_f : int, default=2
-        Length factor: 2 for half-wave, 4 for quarter-wave resonator
+        Length factor: 2 for half-wave (open boundary), 4 for quarter-wave resonator (shorted at one end)
     n : int, default=1
         Mode number (fundamental = 1)
     Cg : float, default=0.0
@@ -403,6 +403,7 @@ class cpw_resonator(circuit):
         else:  # Quarter-wave resonator
             eff_k = 0  # Negligible contribution of shorted end to coupling capacitance
             Cp_factor = 2 # Should be 1 for single count of antinode capacitance??
+
         C_k = eff_k*Ck + Cg
 
         Cp = C_k / (1 + wn**2 * C_k ** 2 * R_L**2) # https://arxiv.org/pdf/0807.4094 (Wallraff2008) [15]
@@ -410,7 +411,7 @@ class cpw_resonator(circuit):
         self.Cp = Cp # Effective coupling capacitance including load impedance effect
         if self.length is None:
             self.length = self._get_length_(
-                frequency, Cp*Cp_factor , n = n
+                frequency, Cp , n = n
             )/ self.length_f
 
         # Wallraff et al. (2008) Eq. (11): L = 2*L_l*l/(n*π)²
@@ -686,9 +687,10 @@ class cpw_resonator(circuit):
         if Cp > 1e-20:
             C_l = wg.C_m
             L_l = wg.L
+            Cp_factor = 2
             wn = 2 * np.pi * f0 * n # Angular frequency of the resonator mode
-            Ls = 2 * L_l / (2 * self.n * np.pi) ** 2
-            l1, l2 = solve_quad(C_l/2 * Ls * wn**2, Ls * Cp * wn**2, -1)
+            Ls = 2 * L_l / (2 * n * np.pi) ** 2
+            l1, l2 = solve_quad(C_l/2 * Ls * wn**2, Ls * Cp_factor*Cp * wn**2, -1)
             return max(l1, l2)
         else:
             return ((c0) / (f0 * n * (wg.epsilon_ek**0.5)))

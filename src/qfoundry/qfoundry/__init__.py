@@ -12,7 +12,7 @@ Versioning follows PEP 440; see __version__.
 from importlib.metadata import version, PackageNotFoundError
 from .resonator import cpw, cpw_resonator
 from .qubits import transmon, tunable_transmon
-
+from .PDK import PDK
 try:
     __version__ = version("qfoundry")
 except PackageNotFoundError:

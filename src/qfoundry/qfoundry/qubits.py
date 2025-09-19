@@ -165,7 +165,6 @@ class transmon(circuit):
         if cls._Rj_ is None: # The resistance value is only calculated if not provided
             cls._Rj_ = Ic_to_R(ic, mat=kwargs.get("mat", sc_metal(1.14, 25e-3))) - cls._Rx_
 
-        print(f"Calculated Ej: {ej*1e-9:.3f} GHz, Ec: {ec*1e-6:.3f} MHz, Ic: {ic*1e9:.3f} nA, Rj: {cls._Rj_+cls._Rx_:.3f} Ohm")
         kwargs["R_j"] = cls._Rj_
         kwargs["R_jx"] = cls._Rx_
         return cls(E_j=ej, E_c=ec, **kwargs)
@@ -354,6 +353,10 @@ class tunable_transmon(transmon):
         self.flux = flux
         self.d = d  # Assymetry parameter
         self.ng = kwargs.get("ng", 0.3)  # Offset charge
+        if "Ej_max" in kwargs:
+            self.Ej_max = kwargs.get("Ej_max", 0.0)  # Maximum Josephson energy
+            kwargs.pop("Ej_max")
+            kwargs["E_j"] = self.Ej_max
         super().__init__(inst_model=False, *args, **kwargs)
 
         # Check relevant args for TunableTransmon available in kwargs
@@ -409,6 +412,22 @@ class tunable_transmon(transmon):
         Critical current for the second junction
         """
         return self.Ic() * (1 - self.d) / 2
+    
+    def f01(self, flux=None):
+        """
+        Qubit 01 frequency
+        """
+        if flux is None:
+            flux = self.flux
+        if self.qmodel is not None:
+            # By default return the f01 using scqubits
+            qmodel: scq.TunableTransmon = self.qmodel
+            spectrum = qmodel.get_spectrum_vs_paramvals(param_name = "flux",  param_vals = flux)
+            return (spectrum[1]-spectrum[0]) * 1e9 
+        else:
+            Ej_eff = self.Ej() * sqrt(cos(pi * flux) ** 2 + self.d**2 * sin(pi * flux) ** 2)
+            return (sqrt(8 * Ej_eff * self.Ec())**0.5 - self.Ec()) # Fallback to approximate with the transmon formula
+
 
     def __str__(self):
         return super().__str__() + "\nFlux = \t%3.2f" % self.flux
