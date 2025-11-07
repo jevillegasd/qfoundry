@@ -317,7 +317,8 @@ class transmon(circuit):
 
     def T1_max(self):
         """
-        Higher bound of T1
+        Higher bound of T1 (Purcello limit)
+        https://arxiv.org/pdf/cond-mat/0703002 eq 4.7
         """
         return (self.delta() / self.g01()) ** 2 / (self.kappa)
 
@@ -349,7 +350,7 @@ class tunable_transmon(transmon):
     """
     Tunable Transmon Qubit
     """
-
+    flux = 0
     def __init__(self, flux=0.0, d=1, *args, **kwargs):
         self.flux = flux
         self.d = d  # Assymetry parameter
@@ -409,6 +410,27 @@ class tunable_transmon(transmon):
         Critical current for the second junction
         """
         return self.Ic() * (1 - self.d) / 2
+<<<<<<< Updated upstream
+=======
+    
+    def f01(self, flux=None):
+        """
+        Qubit 01 frequency
+        """
+        if flux is None:
+            flux = [self.flux]
+        elif isinstance(flux, (int, float)):
+            flux = [flux]
+        if self.qmodel is not None:
+            # By default return the f01 using scqubits
+            spectrum = self.qmodel.get_spectrum_vs_paramvals(param_name = "flux",  param_vals = flux)
+            f01 = spectrum.energy_table[:,1]-spectrum.energy_table[:,0]
+            return f01 * 1e9 if len(f01) > 1 else f01[0] * 1e9
+        else:
+            Ej_eff = self.Ej() * sqrt(cos(pi * flux) ** 2 + self.d**2 * sin(pi * flux) ** 2)
+            return (sqrt(8 * Ej_eff * self.Ec())**0.5 - self.Ec()) # Fallback to approximate with the transmon formula
+
+>>>>>>> Stashed changes
 
     def __str__(self):
         return super().__str__() + "\nFlux = \t%3.2f" % self.flux
