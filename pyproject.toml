@@ -24,6 +24,7 @@ dependencies = [
   "scipy>=1.10",
   "matplotlib>=3.7",
   "scqubits<4.4", 
+  "rustworkx>=0.13.0",
 ]
 
 [project.urls]
@@ -45,4 +46,9 @@ simulation = [
   "femwell>=0.7",
   "scikit-fem>=8.0",
   "pandas>=2.0,<3.0"
+]
+
+agent = [
+  "google-generativeai",
+  "anthropic"
 ]

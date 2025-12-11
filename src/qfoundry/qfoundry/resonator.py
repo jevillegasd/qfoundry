@@ -376,8 +376,8 @@ class cpw_resonator(circuit):
     def __init__(
         self,
         wg: cpw,
-        frequency: float = None,
-        length_f: int = 2,
+        frequency: float,
+        length_f: int = 4,
         n: int = 1,
         Cg: float = 0.0,
         Ck: float = 0.0,
@@ -438,7 +438,7 @@ class cpw_resonator(circuit):
                 truncated_dim=self.truncated_dim,  # up to 3 photons (0,1,2,3)
             )
             
-
+    
     @classmethod
     def from_length(cls, length: float, **kwargs):
         """
@@ -456,13 +456,12 @@ class cpw_resonator(circuit):
             Additional parameters passed to __init__
         """
         
-        wg = kwargs.get("wg", cpw(11.7, 0.1, 12, 6, alpha=2.4e-2))
+        wg = kwargs.get("wg", cpw(11.7, 0.1, 15, 7.5, alpha=2.4e-2))
         length_f = kwargs.get("length_f", 2) 
         n = kwargs.get("n", 1)
         Ck = kwargs.get("Ck", 0.0) # Coupling capacitance to feedline in F
         Cg = kwargs.get("Cg", 0.0) # Coupling capacitance to at antinode in F
         R_L = kwargs.get("R_L", 50.0)
-        cls.length = length
         
         # Total nominal coupling capacitance
          # Coupling efficiency factor, 1 for full coupling, <1 for partial eff_k = V(x)^2/ max|V(x)|^2
@@ -515,7 +514,10 @@ class cpw_resonator(circuit):
             warnings.warn(f"Frequency iteration did not converge after {max_iterations} iterations. "
                          f"Final relative error: {relative_error:.2e}")
         
-        return cls(frequency=f0_new, **kwargs)
+        # Create instance and set length as instance attribute
+        instance = cls(frequency=f0_new, **kwargs)
+        instance.length = length
+        return instance
     
     @classmethod
     def from_length_exact(cls, length: float, **kwargs):
@@ -541,7 +543,6 @@ class cpw_resonator(circuit):
         Ck = kwargs.get("Ck", 0.0)
         Cg = kwargs.get("Cg", 0.0)
         R_L = kwargs.get("R_L", 50.0)
-        cls.length = length
         
         C_coupling = Ck + Cg
         
@@ -581,7 +582,10 @@ class cpw_resonator(circuit):
             warnings.warn(f"Root finding failed: {e}. Using iterative method as fallback.")
             return cls.from_length(length, **kwargs)
         
-        return cls(frequency=f0_solution, **kwargs)
+        # Create instance and set length as instance attribute
+        instance = cls(frequency=f0_solution, **kwargs)
+        instance.length = length
+        return instance
         
     @classmethod
     def coupling_strength_parameter(cls, Ck: float, Cg: float, frequency: float, R_L: float = 50.0):
@@ -715,11 +719,21 @@ class cpw_resonator(circuit):
             self._f0_()
         )  # __f0__() calculates the fundamental LC resonance of the RCL circuit
 
+    def f01(self):
+        return self._f0_()
+    
     def kappa(self):
         return self.f0() / self.Q()
 
-    def kappa_ext(self):
-        return self.fwhm()
+    def kappa_ext(self, Cin=None, Z_L: float = 50.0):
+        """
+        External coupling rate (FWHM) due to coupling capacitance.
+        κ_ext = (ω₀*C_k)²*Z_L / C
+        """
+        if Cin is None:
+            Cin = self.Cin
+        kappa_ = (self.w0()*self.Cin)**2*Z_L / (self.C())
+        return kappa_ / (2 * np.pi)
 
     def Q_ext(self, Cin=None):
         """

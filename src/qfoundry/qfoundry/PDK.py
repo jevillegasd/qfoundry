@@ -1,4 +1,6 @@
 # Constants and parameters for the PDK
+from qfoundry.utils import sc_metal
+
 class DesignRule:
     """Design rule class containing constants and parameters for the design rules."""
 
@@ -85,6 +87,8 @@ class PDK:
             "DR_MIN_WAVEGUIDE_GAP": DR_MIN_WAVEGUIDE_GAP,
             "DR_MIN_WAVEGUIDE_WIDTH": DR_MIN_WAVEGUIDE_WIDTH,
         }
+        self.Tc = 1.14  # Critical temperature of the superconductor [K]
+        self.mat_prop = sc_metal(self.Tc, self.cpw_t)
 
     def __str__(self):
         """String representation of the QW_PDK."""

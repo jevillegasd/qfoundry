@@ -11,9 +11,9 @@ from qfoundry.utils import sc_metal, Ic_to_R, R_to_Ic
 import scqubits as scq
 
 from scipy.constants import e as e_0
-from scipy.constants import Planck as h_0
+from scipy.constants import Planck as h_0, hbar, pi
 
-from numpy import sqrt, pi, tanh, abs
+from numpy import cos, diff, sin, sqrt, tanh, abs, ndarray
 from numpy import diag, ones, arange
 from scipy.linalg import eigh
 import inspect
@@ -25,7 +25,7 @@ class transmon(circuit):
         C_sum:  float=67.5e-15,
         C_g:    float  =21.7e-15,
         C_k:    float  =36.7e-15,
-        C_xy:   float =0.e-15,
+        C_d:   float =0.0e-15,
         res_ro = cpw_resonator(cpw(11.7,0.1,12,6, alpha=2.4e-2),frequency = 7e9, length_f = 2),    #Readout Resonator
         R_jx:   float = 0.0,       # Resistance correction factor
         mat =   sc_metal(1.14),
@@ -43,7 +43,7 @@ class transmon(circuit):
         E_j: float,  # Josephson energy
         E_c: float = None,
         C_g: float = 21.7e-15,
-        C_xy: float = 0.0e-15,
+        C_d: float = 0.0e-15, # Capacitance to ground
         res_ro=cpw_resonator(
             cpw(11.7, 0.1, 12, 6, alpha=2.4e-2), frequency=7e9, length_f=4 # Readout Resonator
         ),  
@@ -70,7 +70,7 @@ class transmon(circuit):
             self._Rj_ = kwargs.get("R_j", 0)
 
         self.C_g = C_g
-        self.C_xy = C_xy
+        self.C_d = C_d
         self.res_ro = res_ro
         self.kappa = kwargs.get("kappa", self.res_ro.kappa_ext()) # External coupling rate
 
@@ -108,10 +108,10 @@ class transmon(circuit):
         Initialize transmon from critical current I_c.
         """
         E_j = i_c / (2 * e_0 * 2 * pi)
-        self._Rx_ = kwargs.get("R_jx", 0.0)
-        self._Rj_ = Ic_to_R(i_c, mat=kwargs.get("mat", sc_metal(1.14, 25e-3))) - self._Rx_
-        kwargs["R_j"] = self._Rj_
-        kwargs["R_jx"] = self._Rx_
+        cls._Rx_ = kwargs.get("R_jx", 0.0)
+        cls._Rj_ = Ic_to_R(i_c, mat=kwargs.get("mat", sc_metal(1.14, 25e-3))) - cls._Rx_
+        kwargs["R_j"] = cls._Rj_
+        kwargs["R_jx"] = cls._Rx_
         return cls(E_j=E_j, **kwargs)
 
     @classmethod
@@ -211,7 +211,7 @@ class transmon(circuit):
         n_j_annalytical = np.sqrt((1+j)/2)*(self.Ej() / (8*self.Ec()))**(1/4)
         return n_j_annalytical
     
-    def g(self,j):
+    def g_j(self,j):
         """
         Coupling sytrength between states j and j+1
         """
@@ -227,6 +227,9 @@ class transmon(circuit):
         return g_j
     
     def g01(self):
+        return self.g()
+    
+    def g(self):
         """
         Coupling strength between the qubit and the resonator (capacitive)
         https://arxiv.org/pdf/cond-mat/0703002 eq. 3.3
@@ -239,12 +242,23 @@ class transmon(circuit):
         V_rms = sqrt(hbar * omega_r / (2 * C_r))
         
         https://arxiv.org/pdf/cond-mat/0703002 eq. 3.1*
+
+        Another option is to use the numerical charge matrix element n_matrix()[0,1]
+        g = C_g*(2*Ec/e) * V_zpf * n_matrix()[0,1] / hbar
+
         """
+
         C_sum = self.C()
         f_r     = self.res_ro.f0() # Resonator angular frequency
         C_r     = self.res_ro.C() # Resonator capacitance
         V_zpf    = sqrt(h_0 * f_r / (2 * C_r)) # Zero point fluctuation voltage
-        beta    = self.C_g / (C_sum) # Participation ratio
+        C_g   = self.C_g
+        try:
+            assert self.n01() is not None
+        except:
+            return C_g/2*sqrt(f_r*self.f01()/ (C_sum*C_r))  # Fallback if n01 is not available
+        
+        beta    = self.C_g / C_sum # Participation ratio
         return 2* beta * e_0 * V_zpf * self.n01() / h_0  # in Hz
         # return 2 * beta * e_0 * V_zpf * self.n_matrix()[0,1] / h_0 # Numerical alternative for n01
 
@@ -285,6 +299,11 @@ class transmon(circuit):
             return (sqrt(8*self.Ej()*self.Ec())**0.5-self.Ec())
         return self.qmodel.E01() * 1e9
 
+    def omega01(self):
+        """
+        Qubit 01 angular frequency
+        """
+        return 2 * pi * self.f01()
 
     def f12(self):
         """
@@ -317,10 +336,54 @@ class transmon(circuit):
 
     def T1_max(self):
         """
-        Higher bound of T1 (Purcello limit)
+        Higher bound of T1 (Purcell limit)
         https://arxiv.org/pdf/cond-mat/0703002 eq 4.7
         """
-        return (self.delta() / self.g01()) ** 2 / (self.kappa)
+        return (self.delta() / self.g01()) ** 2 / (self.res_ro.kappa_ext())
+    
+    def T1_drive(self, Z0=50):
+        """
+        T1 limited by the drive coupling
+        """
+        C_c = self.C_d
+        try:
+            if type(C_c) is float and C_c > 0:
+                T1 = self.C() / (Z0 * (self.omega01())**2 * (C_c)**2) / (2*pi)
+
+            if type(C_c) is list or type(C_c) is ndarray:
+                assert len(C_c) == 2, "C_c should be a float or a list/array of two elements."
+                T1 = 4*self.C() / (Z0 * (self.omega01())**2 * (diff(C_c)[0]**2)) / (2*pi)
+            return T1
+        except:
+            return float('inf')
+
+    def tau_rabi(self, P_in=-63, Z0=50):
+        """
+        Rabi time under a drive with root mean square voltage V_rms
+        Arguments:
+        P_in : float
+            Input power in Watts (if negative, assumed to be in dBm)
+        Z0 : float
+            Characteristic impedance of the drive line (default: 50 Ohm)
+
+        """
+        if P_in <= 0:
+            # Power is probably in dB
+            P_in = 10 ** (P_in / 10) * 1e-3  # Convert dBm to Watts
+
+        C_sum = self.C()
+        C_c = self.C_d if type(self.C_d) is float else abs(diff(self.C_d)[0])
+        beta = C_c / C_sum
+
+        V_rms = sqrt(2 * Z0 * P_in)  # Root mean square voltage
+        
+        try:
+            n01 = self.n01()
+        except:
+            n01 = 1.2
+        
+        tau_pi = (pi * hbar ) / (2 * e_0 * n01 * beta * V_rms)  # Rabi frequency
+        return tau_pi
 
     def __str__(self):
         return (
@@ -410,8 +473,6 @@ class tunable_transmon(transmon):
         Critical current for the second junction
         """
         return self.Ic() * (1 - self.d) / 2
-<<<<<<< Updated upstream
-=======
     
     def f01(self, flux=None):
         """
@@ -430,7 +491,6 @@ class tunable_transmon(transmon):
             Ej_eff = self.Ej() * sqrt(cos(pi * flux) ** 2 + self.d**2 * sin(pi * flux) ** 2)
             return (sqrt(8 * Ej_eff * self.Ec())**0.5 - self.Ec()) # Fallback to approximate with the transmon formula
 
->>>>>>> Stashed changes
 
     def __str__(self):
         return super().__str__() + "\nFlux = \t%3.2f" % self.flux
