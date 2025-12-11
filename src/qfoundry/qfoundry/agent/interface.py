@@ -1,5 +1,6 @@
 import json
 import re
+import os
 import rustworkx as rx
 from dataclasses import fields
 from typing import Dict, Any, Optional, Protocol, List, Union
@@ -34,6 +35,7 @@ class QFoundryAgent:
         self.current_layout: Optional[LayoutGraph] = None
         self._last_response_: Any = None
         self._last_query_: Any = None
+        self.system_prompt_file = "agent_system_prompt.txt"
         
         if model_client:
             self.client = model_client
@@ -47,6 +49,60 @@ class QFoundryAgent:
                 raise ImportError("google-generativeai is not installed. Please install it or provide a custom model_client.")
             except Exception as e:
                 raise ValueError(f"Failed to initialize Gemini client: {e}")
+
+    def reset(self):
+        """Reset the agent's state (history, spec, layout)."""
+        self.history = []
+        self.current_spec = None
+        self.current_layout = None
+        self._last_response_ = None
+
+    def chat(self, user_input: str) -> str:
+        """
+        Chat with the agent about the current design.
+        Updates history but does not modify spec/layout directly.
+        """
+        system_prompt = self._load_system_prompt()
+        context = self._get_context_text()
+        history = self.history_text()
+        
+        prompt = f"{system_prompt}\n\nContext:\n{context}\n\nHistory:\n{history}\n\nUser Input: {user_input}"
+        
+        response = self.client.generate_content(prompt)
+        
+        if hasattr(response, 'text'):
+            response_text = response.text
+        else:
+            response_text = str(response)
+            
+        self._last_response_ = response_text
+        
+        self.history.append({
+            "user": user_input,
+            "agent": response_text
+        })
+        
+        return response_text
+
+    def _load_system_prompt(self) -> str:
+        """Load the system prompt from the local file."""
+        if os.path.exists(self.system_prompt_file):
+            try:
+                with open(self.system_prompt_file, "r") as f:
+                    return f.read().strip()
+            except Exception as e:
+                print(f"Warning: Failed to read system prompt file: {e}")
+        return "You are an expert superconducting quantum processor designer."
+
+    def _get_context_text(self) -> str:
+        """Get the current design context (spec, layout) as a string."""
+        context = ""
+        if self.current_spec:
+            context += f"\nCurrent Specification:\n{json.dumps(self.current_spec.serialize(), indent=2)}\n"
+        if self.current_layout:
+            # Serialize layout, potentially summarizing if too large in future
+            context += f"\nCurrent Layout:\n{json.dumps(self.current_layout.serialize(), indent=2)}\n"
+        return context
 
     def history_text(self) -> str:
         """Convert history to a formatted string for prompts."""
@@ -101,7 +157,11 @@ class QFoundryAgent:
         Generate a high-level design specification.
         """
         # Include history for conversational refinement
-        prompt = SPECIFICATION_PROMPT.format() + "\n\n" + self.history_text()
+        system_prompt = self._load_system_prompt()
+        context = self._get_context_text()
+        history = self.history_text()
+        
+        prompt = f"{system_prompt}\n\n{SPECIFICATION_PROMPT}\n\nContext:\n{context}\n\nHistory:\n{history}"
         
         result = self._query_model(prompt, user_constraints)
         
@@ -150,7 +210,14 @@ class QFoundryAgent:
                 }
 
         spec_str = json.dumps(specification, indent=2)
-        result = self._query_model(LAYOUT_PROMPT.format(specification=spec_str), "Generate layout based on this specification.")
+        
+        system_prompt = self._load_system_prompt()
+        context = self._get_context_text()
+        history = self.history_text()
+        
+        prompt = f"{system_prompt}\n\n{LAYOUT_PROMPT.format(specification=spec_str)}\n\nContext:\n{context}\n\nHistory:\n{history}"
+        
+        result = self._query_model(prompt, "Generate layout based on this specification.")
 
         self.current_layout = self.parse_layout_response(result)
         return self.current_layout
@@ -255,9 +322,14 @@ class QFoundryAgent:
         edges_summary = [{"source": e["source"], "target": e["target"]} for e in layout.get("edges", [])]
         layout_summary = json.dumps({"nodes": nodes_summary, "edges": edges_summary}, indent=2)
         
-        query = READOUT_PROMPT.format(layout_summary=layout_summary)
+        system_prompt = self._load_system_prompt()
+        context = self._get_context_text()
+        history = self.history_text()
+        
+        query = f"{system_prompt}\n\n{READOUT_PROMPT.format(layout_summary=layout_summary)}\n\nContext:\n{context}\n\nHistory:\n{history}"
+        
         result = self._query_model(query, "Generate readout scheme.")
-
+        self._last_response_ = result
         return result
 
     def generate_component(self, specification: Dict[str, Any], node_info: Dict[str, Any]) -> Dict[str, Any]:
@@ -267,7 +339,13 @@ class QFoundryAgent:
         spec_str = json.dumps(specification, indent=2)
         node_str = json.dumps(node_info, indent=2)
         
-        result = self._query_model(COMPONENT_PROMPT.format(specification=spec_str, node_info=node_str), "Calculate component parameters.")
-
+        system_prompt = self._load_system_prompt()
+        context = self._get_context_text()
+        history = self.history_text()
+        
+        prompt = f"{system_prompt}\n\n{COMPONENT_PROMPT.format(specification=spec_str, node_info=node_str)}\n\nContext:\n{context}\n\nHistory:\n{history}"
+        
+        result = self._query_model(prompt, "Calculate component parameters.")
+        self._last_response_ = result
         return result
 

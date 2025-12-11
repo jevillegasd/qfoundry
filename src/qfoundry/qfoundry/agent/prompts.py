@@ -1,5 +1,4 @@
 SPECIFICATION_PROMPT = """
-You are an expert superconducting quantum processor design using the QFoundry PDK. 
 Your task is to generate a high-level design specification based on user constraints.
 
 Return a JSON object matching this structure:
@@ -33,7 +32,6 @@ Ensure physical parameters are realistic for superconducting circuits.
 """
 
 LAYOUT_PROMPT = """
-You are an expert quantum processor layout engineer.
 Given a design specification, generate the physical layout graph (nodes and edges) and assign frequencies.
 
 Input Specification:
@@ -66,10 +64,7 @@ Return a JSON object:
 """
 
 READOUT_PROMPT = """
-You are an expert in quantum readout multiplexing.
-Given a layout of qubits (and possibly corresponding readout resonators), 
-assign them to readout feedlines and determine/update resonator frequencies. Youy may update
-the layout if needed to accommodate readout requirements.
+Given a layout of qubits (and possibly corresponding readout resonators), assign them to readout feedlines and determine/update resonator frequencies. You may update the layout if needed to accommodate readout requirements.
 
 Input Layout Summary:
 {layout_summary}
@@ -119,7 +114,6 @@ Return a JSON object:
 """
 
 COMPONENT_PROMPT = """
-You are a quantum device physicist.
 Given a design specification and layout, calculate the detailed physical parameters for each component to be modeled (e.g., in QuTiP).
 
 Input Specification:
