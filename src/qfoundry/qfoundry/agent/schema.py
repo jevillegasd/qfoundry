@@ -2,6 +2,8 @@ from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional, Union, Literal
 from dataclasses import asdict
 
+from rustworkx import PyGraph
+
 @dataclass
 class SerializableMixin:
     def serialize(self) -> Dict[str, Any]:
@@ -30,12 +32,12 @@ class DesignSpecification(SerializableMixin):
     description: str
     qubit_count: int
     topology_type: str
-    grid_dimensions: Optional[List[int]]
     qubit_families: List[QubitFamily]
     coupling_type: str
     coupling_strength_mean: float
     coloring_strategy: str
     design_guidelines: List[str]
+    grid_dimensions: Optional[List[int]] = None
 
 @dataclass
 class LayoutNode(SerializableMixin):
@@ -56,6 +58,25 @@ class LayoutEdge(SerializableMixin):
 class LayoutGraph(SerializableMixin):
     nodes: List[LayoutNode]
     edges: List[LayoutEdge]
+
+    def toRx(self) -> PyGraph:
+        """Convert the LayoutGraph to a RustworkX graph."""
+        
+        import rustworkx as rx
+
+        graph = rx.PyGraph()
+        node_index_map = {}
+
+        for node in self.nodes:
+            idx = graph.add_node(node)
+            node_index_map[node.id] = idx
+
+        for edge in self.edges:
+            source_idx = node_index_map[edge.source]
+            target_idx = node_index_map[edge.target]
+            graph.add_edge(source_idx, target_idx, edge.type)
+
+        return graph
 
 @dataclass
 class ReadoutResonatorAssignment(SerializableMixin):

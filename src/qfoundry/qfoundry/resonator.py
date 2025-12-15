@@ -413,12 +413,12 @@ class cpw_resonator(circuit):
                 frequency, Cp*Cp_factor , n = n
             )/ self.length_f
 
-        # Wallraff et al. (2008) Eq. (11): L = 2*L_l*l/(n*π)²
+        # Equivalent circuit inducatnce Wallraff et al. (2008) Eq. (11): L = 2*L_l*l/(n*π)²
         self._L_ = (
             2 * self.wg.L * self.length / (self.n * 2 * np.pi) ** 2  # The factor of 1/2**2 cancels out when length_f=2, like in Wallraff Eq. 11
         ) * self.length_f
 
-        # Wallraff et al. (2008) Eq. (12): C = C_l*l/2 + C_c
+        # Equivalent circuit capacitance Wallraff et al. (2008) Eq. (12): C = C_l*l/2 + C_c 
         self._C_ = (self.wg.C_m /2 * self.length* self.length_f  + self.Cp*Cp_factor)
 
         self._R_ = wg.Z_0k / (self.wg.alpha * self.length )

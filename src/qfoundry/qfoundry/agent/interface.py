@@ -3,12 +3,13 @@ import re
 import os
 import rustworkx as rx
 from dataclasses import fields
-from typing import Dict, Any, Optional, Protocol, List, Union
+from typing import Dict, Any, Optional, Protocol, List, Union, Tuple
 from .schema import (
     DesignSpecification, LayoutGraph, ReadoutConfiguration, ComponentParameters,
     LayoutNode, LayoutEdge, ReadoutLine, ReadoutResonatorAssignment, QubitFamily,
 )
 from .prompts import SPECIFICATION_PROMPT, LAYOUT_PROMPT, READOUT_PROMPT, COMPONENT_PROMPT
+from rustworkx.visualization import mpl_draw
 
 class ModelClient(Protocol):
     def generate_content(self, prompt: str) -> Any:
@@ -57,10 +58,14 @@ class QFoundryAgent:
         self.current_layout = None
         self._last_response_ = None
 
-    def chat(self, user_input: str) -> str:
+    def chat(self, user_input: str, stream: bool = False) -> Union[str, Any]:
         """
         Chat with the agent about the current design.
         Updates history but does not modify spec/layout directly.
+        
+        Args:
+            user_input: The user's message.
+            stream: If True, returns a generator yielding response chunks.
         """
         system_prompt = self._load_system_prompt()
         context = self._get_context_text()
@@ -68,21 +73,39 @@ class QFoundryAgent:
         
         prompt = f"{system_prompt}\n\nContext:\n{context}\n\nHistory:\n{history}\n\nUser Input: {user_input}"
         
-        response = self.client.generate_content(prompt)
-        
-        if hasattr(response, 'text'):
-            response_text = response.text
-        else:
-            response_text = str(response)
+        if stream:
+            response = self.client.generate_content(prompt, stream=True)
             
-        self._last_response_ = response_text
-        
-        self.history.append({
-            "user": user_input,
-            "agent": response_text
-        })
-        
-        return response_text
+            def stream_wrapper():
+                full_text = ""
+                for chunk in response:
+                    text = chunk.text if hasattr(chunk, 'text') else str(chunk)
+                    full_text += text
+                    yield text
+                
+                self._last_response_ = full_text
+                self.history.append({
+                    "user": user_input,
+                    "agent": full_text
+                })
+            
+            return stream_wrapper()
+        else:
+            response = self.client.generate_content(prompt)
+            
+            if hasattr(response, 'text'):
+                response_text = response.text
+            else:
+                response_text = str(response)
+                
+            self._last_response_ = response_text
+            
+            self.history.append({
+                "user": user_input,
+                "agent": response_text
+            })
+            
+            return response_text
 
     def _load_system_prompt(self) -> str:
         """Load the system prompt from the local file."""
@@ -112,8 +135,8 @@ class QFoundryAgent:
         return history_text
 
 
-    def _query_model(self, system_prompt: str, user_input: str) -> Dict[str, Any]:
-        """Helper to query the model and parse JSON response."""
+    def _query_model(self, system_prompt: str, user_input: str) -> Tuple[Dict[str, Any], str]:
+        """Helper to query the model and parse JSON response. Returns (json_data, explanation)."""
         # Build prompt with history (optional, maybe only relevant for spec generation)
         # For specific tasks, history might be less relevant or need to be handled differently
         
@@ -128,23 +151,42 @@ class QFoundryAgent:
         self._last_query_ = full_prompt
         self._last_response_ = response_text
         
+        json_data = {}
+        explanation = ""
+        
+        # Extract JSON block
         json_match = re.search(r"```json(.*?)```", response_text, re.DOTALL)
         if json_match:
-            response_text = json_match.group(1)
+            json_str = json_match.group(1)
+            explanation = response_text.replace(json_match.group(0), "").strip()
+        else:
+            # Attempt to find the first '{' and last '}'
+            start_idx = response_text.find('{')
+            end_idx = response_text.rfind('}')
+            
+            if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+                json_str = response_text[start_idx:end_idx+1]
+                explanation = (response_text[:start_idx] + response_text[end_idx+1:]).strip()
+            else:
+                # Fallback: try to parse the whole text as JSON
+                json_str = response_text
+                explanation = ""
 
-        # Basic cleanup
-        clean_text = response_text.strip()
-        if clean_text.startswith("```json"):
-            clean_text = clean_text[7:]
-        if clean_text.startswith("```"):
-            clean_text = clean_text[3:]
-        if clean_text.endswith("```"):
-            clean_text = clean_text[:-3]
+        # Clean up json_str
+        clean_json = json_str.strip()
+        if clean_json.startswith("```json"):
+            clean_json = clean_json[7:]
+        if clean_json.startswith("```"):
+            clean_json = clean_json[3:]
+        if clean_json.endswith("```"):
+            clean_json = clean_json[:-3]
             
         try:
-            return json.loads(clean_text)
+            json_data = json.loads(clean_json)
         except json.JSONDecodeError as e:
             raise ValueError(f"Failed to parse model response as JSON: {e}\nResponse: {response_text}")
+            
+        return json_data, explanation
 
     def suggest_design(self, user_constraints: str) -> Dict[str, Any]:
         """
@@ -152,7 +194,7 @@ class QFoundryAgent:
         """
         return self.generate_specification(user_constraints)
 
-    def generate_specification(self, user_constraints: str) -> Dict[str, Any]:
+    def generate_specification(self, user_constraints: str) -> Tuple[Dict[str, Any], str]:
         """
         Generate a high-level design specification.
         """
@@ -163,12 +205,12 @@ class QFoundryAgent:
         
         prompt = f"{system_prompt}\n\n{SPECIFICATION_PROMPT}\n\nContext:\n{context}\n\nHistory:\n{history}"
         
-        result = self._query_model(prompt, user_constraints)
+        result, explanation = self._query_model(prompt, user_constraints)
         
         # Update history
         self.history.append({
             "user": user_constraints,
-            "agent": json.dumps(result)
+            "agent": self._last_response_
         })
         
         # Parse nested objects for DesignSpecification
@@ -187,9 +229,9 @@ class QFoundryAgent:
             print(f"\033[93mWarning: Failed to parse DesignSpecification object: {e}\033[0m")
             self.current_spec = spec_data # Fallback: keep as dict, this may be problematic elsewhere
         
-        return result
+        return result, explanation
 
-    def generate_layout(self, specification: Dict[str, Any] = None) -> Optional[LayoutGraph]:
+    def generate_layout(self, specification: Dict[str, Any] = None) -> Tuple[Optional[LayoutGraph], str]:
         """
         Generate the physical layout graph (nodes, edges, frequencies).
         """
@@ -217,10 +259,10 @@ class QFoundryAgent:
         
         prompt = f"{system_prompt}\n\n{LAYOUT_PROMPT.format(specification=spec_str)}\n\nContext:\n{context}\n\nHistory:\n{history}"
         
-        result = self._query_model(prompt, "Generate layout based on this specification.")
+        result, explanation = self._query_model(prompt, "Generate layout based on this specification.")
 
         self.current_layout = self.parse_layout_response(result)
-        return self.current_layout
+        return self.current_layout, explanation
 
     def parse_layout_response(self, result: Dict[str, Any]) -> Optional[LayoutGraph]:
         """
@@ -251,25 +293,9 @@ class QFoundryAgent:
         """
         if not self.current_layout:
             return None
-            
-        graph = rx.PyGraph()
-        
-        # Map node IDs to graph indices
-        id_to_idx = {}
-        
-        for node in self.current_layout.nodes:
-            # Add node to graph, payload is the node object itself
-            idx = graph.add_node(node)
-            id_to_idx[node.id] = idx
-            
-        for edge in self.current_layout.edges:
-            if edge.source in id_to_idx and edge.target in id_to_idx:
-                source_idx = id_to_idx[edge.source]
-                target_idx = id_to_idx[edge.target]
-                graph.add_edge(source_idx, target_idx, edge)
+        else :
+            return self.current_layout.toRx()
                 
-        return graph
-
     def update_layout_from_graph(self, graph: rx.PyGraph):
         """
         Update the agent's current layout from a rustworkx graph.
@@ -311,7 +337,7 @@ class QFoundryAgent:
                 
         self.current_layout = LayoutGraph(nodes=nodes, edges=edges)
 
-    def generate_readout_scheme(self, layout: Dict[str, Any] = None) -> Dict[str, Any]:
+    def generate_readout_scheme(self, layout: Dict[str, Any] = None) -> Tuple[Dict[str, Any], str]:
         """
         Generate readout multiplexing scheme.
         """
@@ -328,11 +354,10 @@ class QFoundryAgent:
         
         query = f"{system_prompt}\n\n{READOUT_PROMPT.format(layout_summary=layout_summary)}\n\nContext:\n{context}\n\nHistory:\n{history}"
         
-        result = self._query_model(query, "Generate readout scheme.")
-        self._last_response_ = result
-        return result
+        result, explanation = self._query_model(query, "Generate readout scheme.")
+        return result, explanation
 
-    def generate_component(self, specification: Dict[str, Any], node_info: Dict[str, Any]) -> Dict[str, Any]:
+    def generate_component(self, specification: Dict[str, Any], node_info: Dict[str, Any]) -> Tuple[Dict[str, Any], str]:
         """
         Generate detailed parameters for a single component.
         """
@@ -345,7 +370,20 @@ class QFoundryAgent:
         
         prompt = f"{system_prompt}\n\n{COMPONENT_PROMPT.format(specification=spec_str, node_info=node_str)}\n\nContext:\n{context}\n\nHistory:\n{history}"
         
-        result = self._query_model(prompt, "Calculate component parameters.")
-        self._last_response_ = result
-        return result
+        result, explanation = self._query_model(prompt, "Calculate component parameters.")
+        return result, explanation
 
+    def draw_layout(self, seed: Optional[int] = 8):
+        """ Helper fucntion to draw the circuit layout using rustowrks"""
+        layout = self.current_layout
+        if layout is None:
+            raise ValueError("No current layout to draw.")
+        
+        graph = layout.toRx()
+        pos = rx.spring_layout(graph, k=0.3, seed = seed)
+        colors = [node.color for node in layout.nodes]
+        def labels_func(node):
+            return f"{node.type[0].upper()}{node.id}\nFreq:{node.frequency/1e9:.2f}GHz"
+
+        fig = mpl_draw(graph, pos= pos, with_labels=True, labels=labels_func, node_size=500, font_size=8, node_color= colors)
+        return fig
