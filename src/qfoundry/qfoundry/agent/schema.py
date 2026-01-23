@@ -77,6 +77,13 @@ class LayoutGraph(SerializableMixin):
             graph.add_edge(source_idx, target_idx, edge.type)
 
         return graph
+    
+    def from_dict(data: Dict[str, Any]) -> 'LayoutGraph':
+        """Create a LayoutGraph from a dictionary."""
+        
+        nodes = [LayoutNode(**node_data) for node_data in data.get('nodes', [])]
+        edges = [LayoutEdge(**edge_data) for edge_data in data.get('edges', [])]
+        return LayoutGraph(nodes=nodes, edges=edges)
 
 @dataclass
 class ReadoutResonatorAssignment(SerializableMixin):

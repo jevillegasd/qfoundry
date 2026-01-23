@@ -12,6 +12,7 @@ Versioning follows PEP 440; see __version__.
 from importlib.metadata import version, PackageNotFoundError
 from .resonator import cpw, cpw_resonator
 from .qubits import transmon, tunable_transmon
+from .waveguides import cpw
 
 try:
     __version__ = version("qfoundry")
@@ -32,8 +33,8 @@ __all__ = [
 
 def __getattr__(name):
     if name in {"cpw", "cpw_resonator"}:
-        from .resonator import cpw, cpw_resonator  # type: ignore
-
+        from .resonator import cpw_resonator  # type: ignore
+        from .waveguides import cpw  # type: ignore
         return {"cpw": cpw, "cpw_resonator": cpw_resonator}[name]
     if name in {"transmon", "tunable_transmon"}:
         from .qubits import transmon, tunable_transmon  # type: ignore

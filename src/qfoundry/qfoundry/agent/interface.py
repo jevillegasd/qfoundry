@@ -10,6 +10,7 @@ from .schema import (
 )
 from .prompts import SPECIFICATION_PROMPT, LAYOUT_PROMPT, READOUT_PROMPT, COMPONENT_PROMPT
 from rustworkx.visualization import mpl_draw
+import numpy as np
 
 class ModelClient(Protocol):
     def generate_content(self, prompt: str) -> Any:
@@ -188,20 +189,20 @@ class QFoundryAgent:
             
         return json_data, explanation
 
-    def suggest_design(self, user_constraints: str) -> Dict[str, Any]:
+    def suggest_design(self, user_constraints: str , no_context = False) -> Dict[str, Any]:
         """
         Legacy method for backward compatibility. Generates specification only.
         """
-        return self.generate_specification(user_constraints)
+        return self.generate_specification(user_constraints, no_context=no_context)
 
-    def generate_specification(self, user_constraints: str) -> Tuple[Dict[str, Any], str]:
+    def generate_specification(self, user_constraints: str, no_context = False) -> Tuple[Dict[str, Any], str]:
         """
         Generate a high-level design specification.
         """
         # Include history for conversational refinement
         system_prompt = self._load_system_prompt()
-        context = self._get_context_text()
-        history = self.history_text()
+        context = "" if not no_context else self._get_context_text()
+        history = "" if not no_context else self.history_text()
         
         prompt = f"{system_prompt}\n\n{SPECIFICATION_PROMPT}\n\nContext:\n{context}\n\nHistory:\n{history}"
         
@@ -337,12 +338,16 @@ class QFoundryAgent:
                 
         self.current_layout = LayoutGraph(nodes=nodes, edges=edges)
 
-    def generate_readout_scheme(self, layout: Dict[str, Any] = None) -> Tuple[Dict[str, Any], str]:
+    def generate_readout_scheme(self, specification = "") -> Tuple[Dict[str, Any], str]:
         """
         Generate readout multiplexing scheme.
         """
-        if layout is None:
+
+        if self.current_layout:
             layout = self.current_layout.serialize()
+        else:
+            raise("There isa no layout to generate readout scheme.")
+
         # Summarize layout for prompt to save tokens
         nodes_summary = [{"id": n["id"], "frequency": n.get("frequency")} for n in layout.get("nodes", [])]
         edges_summary = [{"source": e["source"], "target": e["target"]} for e in layout.get("edges", [])]
@@ -352,10 +357,22 @@ class QFoundryAgent:
         context = self._get_context_text()
         history = self.history_text()
         
-        query = f"{system_prompt}\n\n{READOUT_PROMPT.format(layout_summary=layout_summary)}\n\nContext:\n{context}\n\nHistory:\n{history}"
+        query = f"{system_prompt}\n\n{READOUT_PROMPT.format(layout_summary=layout_summary, specification=specification)}\n\nContext:\n{context}\n\nHistory:\n{history}" # Maybe this is too much context for readout generation (layout summary plus full context)?
         
         result, explanation = self._query_model(query, "Generate readout scheme.")
-        return result, explanation
+
+        # Upodate history
+        self.history.append({
+            "user": "Generate readout scheme. {}".format(specification),
+            "agent": self._last_response_
+        })
+        new_layout = result['layout'] if 'layout' in result else {}
+        feedlines = result['feedlines'] if 'feedlines' in result else []
+
+        if new_layout:
+            self.current_layout = LayoutGraph.from_dict(new_layout)
+
+        return feedlines, explanation
 
     def generate_component(self, specification: Dict[str, Any], node_info: Dict[str, Any]) -> Tuple[Dict[str, Any], str]:
         """
@@ -386,4 +403,114 @@ class QFoundryAgent:
             return f"{node.type[0].upper()}{node.id}\nFreq:{node.frequency/1e9:.2f}GHz"
 
         fig = mpl_draw(graph, pos= pos, with_labels=True, labels=labels_func, node_size=500, font_size=8, node_color= colors)
+        return fig
+
+    def estimate_hamiltonian_parameters(self) -> Dict[str, Dict[str, float]]:
+        """
+        Estimate Hamiltonian parameters (Ej, Ec) for each qubit family based on
+        frequency and anharmonicity specifications.
+        
+        Returns:
+            Dictionary mapping family_id to {'Ej': float, 'Ec': float, 'ratio': float}
+        """
+        if not self.current_spec:
+            return {}
+            
+        results = {}
+        for family in self.current_spec.qubit_families:
+            # Anharmonicity alpha = -Ec (approx)
+            # f01 = sqrt(8*Ej*Ec) - Ec
+            
+            # We assume units are consistent (e.g. GHz)
+            alpha = abs(family.anharmonicity) # Ec is positive
+            f01 = family.frequency_mean
+            
+            Ec = alpha
+            # f01 + Ec = sqrt(8*Ej*Ec)
+            # (f01 + Ec)^2 = 8*Ej*Ec
+            # Ej = (f01 + Ec)^2 / (8*Ec)
+            
+            if Ec == 0:
+                Ej = 0 
+            else:
+                Ej = (f01 + Ec)**2 / (8 * Ec)
+                
+            results[family.family_id] = {
+                "Ej": Ej,
+                "Ec": Ec,
+                "Ej_Ec_ratio": Ej / Ec if Ec != 0 else 0,
+                "frequency": f01,
+                "anharmonicity": family.anharmonicity
+            }
+        return results
+
+    def analyze_frequency_collisions(self, threshold_ghz: float = 0.05) -> List[str]:
+        """
+        Analyze the current layout for frequency collisions between connected qubits.
+        
+        Args:
+            threshold_ghz: Minimum frequency difference required (default 0.05 GHz = 50 MHz).
+            
+        Returns:
+            List of warning strings describing collisions.
+        """
+        if not self.current_layout:
+            return ["No layout available to analyze."]
+            
+        warnings = []
+        # Filter for qubits only
+        nodes_by_id = {n.id: n for n in self.current_layout.nodes if n.type == 'qubit'}
+        
+        for edge in self.current_layout.edges:
+            if edge.source in nodes_by_id and edge.target in nodes_by_id:
+                q1 = nodes_by_id[edge.source]
+                q2 = nodes_by_id[edge.target]
+                
+                # Check if frequencies are assigned
+                if q1.frequency is not None and q2.frequency is not None:
+                    delta = abs(q1.frequency - q2.frequency)
+                    if delta < threshold_ghz:
+                        warnings.append(
+                            f"Collision detected: {q1.id} ({q1.frequency:.3f} GHz) <-> {q2.id} ({q2.frequency:.3f} GHz) "
+                            f"Delta: {delta*1000:.1f} MHz < Threshold: {threshold_ghz*1000:.1f} MHz"
+                        )
+        
+        if not warnings:
+            return ["No frequency collisions detected above threshold."]
+            
+        return warnings
+
+    def get_design_dataframe(self):
+        """
+        Returns a pandas DataFrame of the qubit layout if pandas is available.
+        Otherwise returns a list of dictionaries.
+        """
+        if not self.current_layout:
+            return None
+            
+        data = []
+        for node in self.current_layout.nodes:
+            if node.type == 'qubit':
+                item = {
+                    "id": node.id,
+                    "type": node.type,
+                    "family": node.family_id,
+                    "frequency": node.frequency,
+                    "x": node.position[0] if node.position else None,
+                    "y": node.position[1] if node.position else None,
+                }
+                # Add family specs if available
+                if self.current_spec:
+                    fam = next((f for f in self.current_spec.qubit_families if f.family_id == node.family_id), None)
+                    if fam:
+                        item['anharmonicity'] = fam.anharmonicity
+                        item['charging_energy'] = fam.charging_energy
+                
+                data.append(item)
+                
+        try:
+            import pandas as pd
+            return pd.DataFrame(data)
+        except ImportError:
+            return data
         return fig

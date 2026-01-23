@@ -11,7 +11,7 @@ Return a JSON object matching this structure:
     "qubit_families": [
         {{
             "family_id": "String",
-            "qubit_type": "String (e.g., 'transmon', 'flux_tunable_transmon')",
+            "qubit_type": "String (e.g., 'transmon', 'flux_tunable_transmon', etc)",
             "frequency_mean": Float (Hz),
             "anharmonicity": Float (Hz),
             "asymmetry_max": Float (0.0 to 1.0),
@@ -50,7 +50,7 @@ Return a JSON object:
     "nodes": [
         {{
             "id": "String (e.g., Q01)",
-            "type": "qubit" | "coupler" | "resonator",
+            "type": "qubit"  | "resonator" | "purcell_filter" | "coupler" | "tunable_coupler",
             "family_id": "String (from spec)",
             "position": [x, y],
             "frequency": Float (Hz),
@@ -75,6 +75,14 @@ Constraints:
 3. Resonator frequencies should be typically 7-8 GHz.
 4. Coupling strengths should be in the range of 5-20 MHz.
 5. Qubit - Resonator detuning should be homogeneous (similar) across the design.
+
+User constraints
+{specification}
+
+Task:
+1. Assign qubits to feedlines.
+2. Update layout if necessary. 
+3. Update resonator frequencies and coupling strengths.
 
 Return a JSON object:
 {{
