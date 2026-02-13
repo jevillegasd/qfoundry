@@ -93,6 +93,7 @@ class transmon(circuit):
         self._C_ = e_0**2 / (2 * self._ec_) / h_0
         self._L_ = h_0 / (2 * e_0 * self.Ic())
         self._R_ = self._Rj_ + self._Rx_
+        
     @classmethod
     def from_Csum(cls, C_sum: float, **kwargs):
         """

@@ -1,5 +1,6 @@
 # Constants and parameters for the PDK
 from qfoundry.utils import sc_metal
+from qfoundry.waveguides import cpw
 
 class DesignRule:
     """Design rule class containing constants and parameters for the design rules."""
@@ -90,14 +91,30 @@ class PDK:
         self.Tc = 1.14  # Critical temperature of the superconductor [K]
         self.mat_prop = sc_metal(self.Tc, self.cpw_t)
 
+    def cpw(self):
+        """Return a coplanar waveguide object using the PDK parameters."""
+        return cpw(
+            epsilon_r=self.epsilon_r,
+            height=self.substrate_h,
+            width=self.cpw_w,
+            spacing=self.cpw_g,
+            thickness=self.cpw_t,
+            alpha= self.alpha,
+            tc = self.Tc,
+            T = 0.02,  # Operating temperature [K]
+            
+        )
+
     def __str__(self):
         """String representation of the QW_PDK."""
-        return f"qfoudnry_PDK(epsilon_r={self.epsilon_r}, substrate_h={self.substrate_h}, substrate_rho={self.substrate_rho}, cpw_w={self.cpw_w}, cpw_g={self.cpw_g}, cpw_t={self.cpw_t}, alpha={self.alpha})"
+        return f"{type(self)}(epsilon_r={self.epsilon_r}, substrate_h={self.substrate_h}, substrate_rho={self.substrate_rho}, cpw_w={self.cpw_w}, cpw_g={self.cpw_g}, cpw_t={self.cpw_t}, alpha={self.alpha})"
 
     def __repr__(self):
         """String representation of the QW_PDK for debugging."""
-        return f"qfoudnry_PDK(epsilon_r={self.epsilon_r}, substrate_h={self.substrate_h}, substrate_rho={self.substrate_rho}, cpw_w={self.cpw_w}, cpw_g={self.cpw_g}, cpw_t={self.cpw_t}, alpha={self.alpha})"
+        return f"{type(self)}(epsilon_r={self.epsilon_r}, substrate_h={self.substrate_h}, substrate_rho={self.substrate_rho}, cpw_w={self.cpw_w}, cpw_g={self.cpw_g}, cpw_t={self.cpw_t}, alpha={self.alpha})"
 
+
+QF_PDK = PDK() # PDK instance with defaults
 
 class QW_PDK(PDK):
     """QW_PDK class containing constants and parameters for the QW design kit."""
@@ -112,6 +129,7 @@ class QW_PDK(PDK):
         self.substrate_rho = 1 / 1e4  # Substrate conductivity [1/Ω*cm]
         self.Lk = 0.0  # Metal layer kinetic inductance [pH//□]
         self.cpw_t = 0.2e-6  # [μm] Waveguide thickness
+        self.alpha = 0.0027e-3  # Superconductive Loss tangent (np/m) (measuredf from test resonators Qi at low power)
 
         DR_MIN_FEATURE_SIZE = DesignRule(
             name="DR_MIN_FEATURE_SIZE",
@@ -129,6 +147,8 @@ class QW_PDK(PDK):
     def get_design_rule(self, name):
         """Get a design rule by its name."""
         return self.design_rules.get(name, None)
+    
+
 
 
 # Example design rules

@@ -170,7 +170,7 @@ class cpw_resonator(circuit):
             raise ValueError("length_f must be 1 (full-wave), 2 (half-wave) or 4 (quarter-wave)")
         self.length_f = length_f  # length factor: 4: quarter wavelength resonator (short in one end)
         self.n = n  # mode number
-        self.Cin = Ck
+        self.Ck = Ck
 
         wn = 2 * np.pi * frequency * n  # Angular frequency of the resonator mode
 
@@ -182,12 +182,11 @@ class cpw_resonator(circuit):
             Cp_factor = 2 # Should be 1 for single count of antinode capacitance??
         C_k = eff_k*Ck + Cg
 
-        Cp = C_k / (1 + wn**2 * C_k ** 2 * R_L**2) # https://arxiv.org/pdf/0807.4094 (Wallraff2008) [15]
+        self.Cp = C_k / (1 + wn**2 * C_k ** 2 * R_L**2) # https://arxiv.org/pdf/0807.4094 (Wallraff2008) [15]  # Effective coupling capacitance including load impedance effect
         
-        self.Cp = Cp # Effective coupling capacitance including load impedance effect
         if self.length is None:
             self.length = self._get_length_(
-                frequency, Cp*Cp_factor , n = n
+                frequency, self.Cp*Cp_factor , n = n
             )/ self.length_f
 
         # Equivalent circuit inducatnce Wallraff et al. (2008) Eq. (11): L = 2*L_l*l/(n*π)²
@@ -199,7 +198,7 @@ class cpw_resonator(circuit):
         self._C_ = (self.wg.C_m /2 * self.length* self.length_f  + self.Cp*Cp_factor)
 
         self._R_ = wg.Z_0k / (self.wg.alpha * self.length )
-         # Wallraff et al. (2008) Eq. (13): R = Z0/(alpha*l
+         # Wallraff et al. (2008) Eq. (13): R = Z0/(alpha*l)
 
         # Correct for the coupling capacitance 
         self._R_ += (1 + wn**2 * (Ck + Cg) ** 2 * R_L**2) / (
@@ -504,8 +503,8 @@ class cpw_resonator(circuit):
         κ_ext = (ω₀*C_k)²*Z_L / C
         """
         if Cin is None:
-            Cin = self.Cin
-        kappa_ = (self.w0()*self.Cin)**2*Z_L / (self.C())
+            Cin = self.Ck
+        kappa_ = (self.w0()*Cin)**2*Z_L / (self.C())
         return kappa_ / (2 * np.pi)
 
     def Q_ext(self, Cin=None):
@@ -515,7 +514,7 @@ class cpw_resonator(circuit):
         Q_ext = π/(4*(Z₀*ω*C_k)²)
         """
         if Cin == None:
-            Cin = self.Cin
+            Cin = self.Ck
         return np.pi / (4 * (self.wg.Z_0 * 2 * np.pi * self.f0() * Cin) ** 2)
         # return (1+(wr*C_k*R_L)**2)*(C+C_k))/(wr*C_k**2*R_L)  R_L=50 Ohm
 
@@ -523,7 +522,7 @@ class cpw_resonator(circuit):
         """
         Internal quality factor due to material losses.
         
-        Q_int = ω₀*L/R_s where R_s is the series resistance
+        Q_int = ω₀*L/R_s where R_s is the equivalent series resistance
         """
         return self.w0() * self.L() / self._R_
     
@@ -553,7 +552,7 @@ class cpw_resonator(circuit):
         where Δ = f - f₀ and κ_total = κ_int + κ_ext.
         """
         if Cin is None:
-            Cin = self.Cin
+            Cin = self.Ck
         g = self.coupling_strength(Cin)
         Q_tot = self.Q_total(Cin)
         df_over_f0 = (f - self.f0()) / self.f0()
@@ -619,7 +618,7 @@ class cpw_resonator(circuit):
     
     def participation_ratio(self, junction_area, gap_distance):
         """
-        Calculate the participation ratio for a Josephson junction.
+        Calculate the participation ratio for a Josephson junction directly connected to the resonator in a gap.
         
         Parameters
         ----------
@@ -761,7 +760,7 @@ class cpw_resonator(circuit):
 
     def fwhm(self, Cin=None):
         if Cin == None:
-            Cin = self.Cin
+            Cin = self.Ck
         return self.f0() / self.Q_ext(Cin=Cin)
 
     def C(self):
