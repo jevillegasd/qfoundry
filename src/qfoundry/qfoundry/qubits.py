@@ -292,13 +292,25 @@ class transmon(circuit):
         """
         return -(self.g01() ** 2) / (self.delta()) * (1 / (1 + self.delta() / self.alpha()))
 
+    def E_m(self, m):
+        """
+        Energy of the m-th level
+        """
+        if self.qmodel is not None:
+            spectrum = self.qmodel.get_spectrum_vs_paramvals(param_name = "ng",  param_vals = [0, 0.5])
+            E_m = spectrum.energy_table[m,0] # Energy at ng=0
+            return E_m * 1e9
+        else:
+            return -self.Ej() + sqrt(8*self.Ej()*self.Ec())*(m+0.5) - self.Ec()*(6*m**2 + 6*m + 3)/12
+        
+    def E01(self):
+        return self.E_m(1) - self.E_m(0)
+
     def f01(self):
         """
         Qubit 01 frequency
         """
-        if self.qmodel is None:
-            return (sqrt(8*self.Ej()*self.Ec())**0.5-self.Ec())
-        return self.qmodel.E01() * 1e9
+        return self.qmodel.E01()
 
     def omega01(self):
         """
@@ -358,6 +370,21 @@ class transmon(circuit):
         except:
             return float('inf')
 
+    def omega_rabi(self, V_rms):
+        """
+        Rabi frequency under a drive with root mean square voltage V_rms
+        """
+        C_sum = self.C()
+        C_c = self.C_d if type(self.C_d) is float else abs(diff(self.C_d)[0])
+
+        try:
+            n01 = self.n01()
+        except:
+            n01 = 1.2
+
+        beta = C_c / C_sum  # Participation ratio
+        return (2 * e_0 * n01 * beta * V_rms)/hbar # Rabi frequency
+    
     def tau_rabi(self, P_in=-63, Z0=50):
         """
         Rabi time under a drive with root mean square voltage V_rms
@@ -372,19 +399,22 @@ class transmon(circuit):
             # Power is probably in dB
             P_in = 10 ** (P_in / 10) * 1e-3  # Convert dBm to Watts
 
-        C_sum = self.C()
-        C_c = self.C_d if type(self.C_d) is float else abs(diff(self.C_d)[0])
-        beta = C_c / C_sum
-
         V_rms = sqrt(2 * Z0 * P_in)  # Root mean square voltage
-        
-        try:
-            n01 = self.n01()
-        except:
-            n01 = 1.2
-        
-        tau_pi = (pi * hbar ) / (2 * e_0 * n01 * beta * V_rms)  # Rabi frequency
+        tau_pi = pi / self.omega_rabi(V_rms, Z0)  # Time for a pi pulse
         return tau_pi
+    
+    def epsilon_m(self, m = 0):
+        """
+        Charge dispersion for the m-th level
+        https://arxiv.org/pdf/cond-mat/0703002 eq 3.5
+        """
+        if self.qmodel is not None:
+            spectrum = self.qmodel.get_spectrum_vs_paramvals(param_name = "ng",  param_vals = [0, 0.5])
+            epsilon_m = abs(spectrum.energy_table[m,1] - spectrum.energy_table[m,0])
+            return epsilon_m * 1e9
+        else:
+            return (-1)**m * self.Ec() * (2**(4*m+5) / factorial(m)) * sqrt(2/pi) * (self.Ej()/(8*self.Ec()))**(m/2 + 3/4) * exp(-sqrt(8*self.Ej()/self.Ec()))
+
 
     def __str__(self):
         return (
