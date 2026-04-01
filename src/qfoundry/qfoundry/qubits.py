@@ -13,8 +13,8 @@ import scqubits as scq
 from scipy.constants import e as e_0
 from scipy.constants import Planck as h_0, hbar, pi
 
-from numpy import cos, diff, sin, sqrt, tanh, abs, ndarray
-from numpy import diag, ones, arange
+from numpy import cos, sin, sqrt, tanh, abs, exp, pi 
+from numpy import diag, ones, arange, diff, factorial, ndarray
 from scipy.linalg import eigh
 import inspect
 
@@ -209,7 +209,7 @@ class transmon(circuit):
         |< j + 1 | nˆ | j >| ≈
         https://arxiv.org/pdf/cond-mat/0703002 eq 3.4
         """
-        n_j_annalytical = np.sqrt((1+j)/2)*(self.Ej() / (8*self.Ec()))**(1/4)
+        n_j_annalytical = sqrt((1+j)/2)*(self.Ej() / (8*self.Ec()))**(1/4)
         return n_j_annalytical
     
     def g_j(self,j):
