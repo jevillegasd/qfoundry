@@ -14,7 +14,9 @@ from scipy.constants import e as e_0
 from scipy.constants import Planck as h_0, hbar, pi
 
 from numpy import cos, sin, sqrt, tanh, abs, exp, pi 
-from numpy import diag, ones, arange, diff, factorial, ndarray
+from numpy import diag, ones, arange, diff, ndarray
+from math import factorial
+
 from scipy.linalg import eigh
 import inspect
 
