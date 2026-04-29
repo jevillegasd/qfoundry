@@ -124,7 +124,10 @@ class transmon(circuit):
         The saved junction resistance is R_j, but the effective resistance 
         used to calculate the qubit properties is R_j - R_jx.
         """
+        from numpy import isnan
         cls._Rx_ = kwargs.get("R_jx", 0.0)
+        if cls._Rx_ is None or isnan(cls._Rx_):
+            cls._Rx_ = 0.0
         cls._Rj_ = R_j
 
         mat = kwargs.get("mat", sc_metal(1.14, 25e-3))
@@ -177,9 +180,14 @@ class transmon(circuit):
         """
         Anharmonicity
         """
-        if self.qmodel is None:
-            return -self.Ec() * 1e9
-        return self.qmodel.anharmonicity() * 1e9
+        from numpy.linalg import LinAlgError 
+        alpha = -self.Ec() # Analytical approximation for anharmonicity, in Hz
+        if self.qmodel is not None:
+            try: 
+                return self.qmodel.anharmonicity() * 1e9
+            except LinAlgError as e:
+                return alpha
+        return alpha
 
     def L(self, phi=0.0):
         """
@@ -298,21 +306,36 @@ class transmon(circuit):
         """
         Energy of the m-th level
         """
-        if self.qmodel is not None:
-            spectrum = self.qmodel.get_spectrum_vs_paramvals(param_name = "ng",  param_vals = [0, 0.5])
-            E_m = spectrum.energy_table[m,0] # Energy at ng=0
-            return E_m * 1e9
+        from numpy.linalg import LinAlgError
+        if self.qmodel is not None: 
+            try:
+                spectrum = self.qmodel.get_spectrum_vs_paramvals(param_name = "ng",  param_vals = [0, 0.5])
+                E_m = spectrum.energy_table[m,0] # Energy at ng=0
+                return E_m * 1e9
+            except LinAlgError as e:
+                return -self.Ej() + sqrt(8*self.Ej()*self.Ec())*(m+0.5) - self.Ec()*(6*m**2 + 6*m + 3)/12
+            
         else:
             return -self.Ej() + sqrt(8*self.Ej()*self.Ec())*(m+0.5) - self.Ec()*(6*m**2 + 6*m + 3)/12
-        
+    
+
     def E01(self):
-        return self.E_m(1) - self.E_m(0)
+        from numpy.linalg import LinAlgError
+        if self.qmodel is not None: 
+            try:
+                return self.qmodel.E01() * 1e9
+            except LinAlgError as e:
+                return sqrt(8*self.Ej()*self.Ec())*(0.5) - self.Ec()
+        else:
+            return self.Ej() + sqrt(8*self.Ej()*self.Ec())*(0.5) - self.Ec()
+
 
     def f01(self):
         """
-        Qubit 01 frequency
+        Qubit 01 frequency, in Hz (equivalent to E01)
         """
-        return self.qmodel.E01()
+        return self.E01()
+       
 
     def omega01(self):
         """
@@ -410,12 +433,18 @@ class transmon(circuit):
         Charge dispersion for the m-th level
         https://arxiv.org/pdf/cond-mat/0703002 eq 3.5
         """
+        from numpy.linalg import LinAlgError
+
+        eps_m = (-1)**m * self.Ec() * (2**(4*m+5) / factorial(m)) * sqrt(2/pi) * (self.Ej()/(8*self.Ec()))**(m/2 + 3/4) * exp(-sqrt(8*self.Ej()/self.Ec())) # Analytical approximation for charge dispersion, valid in the transmon regime (EJ/EC >> 1)
         if self.qmodel is not None:
-            spectrum = self.qmodel.get_spectrum_vs_paramvals(param_name = "ng",  param_vals = [0, 0.5])
-            epsilon_m = abs(spectrum.energy_table[m,1] - spectrum.energy_table[m,0])
-            return epsilon_m * 1e9
+            try:
+                spectrum = self.qmodel.get_spectrum_vs_paramvals(param_name = "ng",  param_vals = [0, 0.5])
+                epsilon_m = abs(spectrum.energy_table[m,1] - spectrum.energy_table[m,0])
+                return epsilon_m * 1e9
+            except LinAlgError as e:
+                return eps_m
         else:
-            return (-1)**m * self.Ec() * (2**(4*m+5) / factorial(m)) * sqrt(2/pi) * (self.Ej()/(8*self.Ec()))**(m/2 + 3/4) * exp(-sqrt(8*self.Ej()/self.Ec()))
+            return eps_m
 
 
     def __str__(self):
