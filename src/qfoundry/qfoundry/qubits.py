@@ -383,24 +383,26 @@ class transmon(circuit):
         """
         T1 limited by the drive coupling
         """
+        from numpy import floating, ndarray
         C_c = self.C_d
-        try:
-            if type(C_c) is float and C_c > 0:
-                T1 = self.C() / (Z0 * (self.omega01())**2 * (C_c)**2) / (2*pi)
 
-            if type(C_c) is list or type(C_c) is ndarray:
-                assert len(C_c) == 2, "C_c should be a float or a list/array of two elements."
-                T1 = 4*self.C() / (Z0 * (self.omega01())**2 * (diff(C_c)[0]**2)) / (2*pi)
-            return T1
-        except:
+        # Check if C_c is a positive float or a list/array of two elements
+        if not (isinstance(C_c, (float, floating)) and C_c > 0) and not (isinstance(C_c, (list, ndarray)) and len(C_c) == 2):
+            print("C_d should be a positive float or a list/array of two elements.")
             return float('inf')
+        else:
+            if isinstance(C_c, (list, ndarray)):
+                assert len(C_c) == 2, "C_d must be a list/array of two elements."
+                return self.C() / (Z0 * (self.omega01())**2 * (diff(C_c)[0]**2)) / (2*pi) # * 4 # Double check this derivation
+            return self.C() / (Z0 * (self.omega01())**2 * (C_c)**2) / (2*pi)
 
     def omega_rabi(self, V_rms):
         """
         Rabi frequency under a drive with root mean square voltage V_rms
         """
+        from numpy import floating
         C_sum = self.C()
-        C_c = self.C_d if type(self.C_d) is float else abs(diff(self.C_d)[0])
+        C_c = self.C_d if isinstance(self.C_d, (floating, np.floating)) else abs(diff(self.C_d)[0])
 
         try:
             n01 = self.n01()
