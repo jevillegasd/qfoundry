@@ -37,8 +37,6 @@ class transmon(circuit):
         NOTE: Energies are in E/h (not E/hbar)
     """
     qmodel = None
-    _Rj_ = None  # Junction resistance
-    _Rx_ = None  # Junction resistance correction factor
 
     def __init__(
         self,
@@ -64,12 +62,8 @@ class transmon(circuit):
 
         # Resistance values may be provided directly but not used for calculations unless the object
         # is instantiated using from_rj() method.
-        
-        if self._Rx_ is None:
-            self._Rx_ = kwargs.get("R_jx", 0)  
-
-        if self._Rj_ is None:
-            self._Rj_ = kwargs.get("R_j", 0)
+        self._Rx_ = kwargs.get("R_jx", 0) or 0
+        self._Rj_ = kwargs.get("R_j", 0) or 0
 
         self.C_g = C_g
         self.C_d = C_d
@@ -111,10 +105,10 @@ class transmon(circuit):
         Initialize transmon from critical current I_c.
         """
         E_j = i_c / (2 * e_0 * 2 * pi)
-        cls._Rx_ = kwargs.get("R_jx", 0.0)
-        cls._Rj_ = Ic_to_R(i_c, mat=kwargs.get("mat", sc_metal(1.14, 25e-3))) - cls._Rx_
-        kwargs["R_j"] = cls._Rj_
-        kwargs["R_jx"] = cls._Rx_
+        Rx = kwargs.get("R_jx", 0.0) or 0.0
+        Rj = Ic_to_R(i_c, mat=kwargs.get("mat", sc_metal(1.14, 25e-3))) - Rx
+        kwargs["R_j"] = Rj
+        kwargs["R_jx"] = Rx
         return cls(E_j=E_j, **kwargs)
 
     @classmethod
@@ -125,10 +119,9 @@ class transmon(circuit):
         used to calculate the qubit properties is R_j - R_jx.
         """
         from numpy import isnan
-        cls._Rx_ = kwargs.get("R_jx", 0.0)
-        if cls._Rx_ is None or isnan(cls._Rx_):
-            cls._Rx_ = 0.0
-        cls._Rj_ = R_j
+        Rx = kwargs.get("R_jx", 0.0)
+        if Rx is None or isnan(Rx):
+            Rx = 0.0
 
         mat = kwargs.get("mat", sc_metal(1.14, 25e-3))
 
@@ -138,8 +131,10 @@ class transmon(circuit):
             assert C_sum is not None, "C_sum must be provided if E_c is not."
             E_c = e_0**2 / (2 * C_sum) / h_0
 
-        i_c = R_to_Ic(cls._Rj_ + cls._Rx_, mat=mat)
+        i_c = R_to_Ic(R_j + Rx, mat=mat)
         E_j = i_c / (2 * e_0 * 2 * pi)
+        kwargs["R_j"] = R_j
+        kwargs["R_jx"] = Rx
         kwargs["E_c"] = E_c
         kwargs["E_j"] = E_j
         return cls(**kwargs)
@@ -152,9 +147,9 @@ class transmon(circuit):
         This uses the approximation f01 = sqrt(8 * Ej * Ec) - Ec to find the
         required Ej for a given Ec.
         """
-        cls._Rx_ = kwargs.get("R_jx", 0.0)
-        cls._Rj_ = kwargs.get("R_j", None)
-        
+        Rx = kwargs.get("R_jx", 0.0) or 0.0
+        Rj = kwargs.get("R_j", None)
+
         E_c = kwargs.get("E_c", None)
         if E_c is None:
             C_sum = kwargs.get("C_sum", None)
@@ -168,12 +163,12 @@ class transmon(circuit):
         ej = (f01 + ec) ** 2 / (8 * ec)
         ic = ej * 2 * e_0 * (2 * pi)
 
-        if cls._Rj_ is None: # The resistance value is only calculated if not provided
-            cls._Rj_ = Ic_to_R(ic, mat=kwargs.get("mat", sc_metal(1.14, 25e-3))) - cls._Rx_
+        if Rj is None:  # The resistance value is only calculated if not provided
+            Rj = Ic_to_R(ic, mat=kwargs.get("mat", sc_metal(1.14, 25e-3))) - Rx
 
-        print(f"Calculated Ej: {ej*1e-9:.3f} GHz, Ec: {ec*1e-6:.3f} MHz, Ic: {ic*1e9:.3f} nA, Rj: {cls._Rj_+cls._Rx_:.3f} Ohm")
-        kwargs["R_j"] = cls._Rj_
-        kwargs["R_jx"] = cls._Rx_
+        print(f"Calculated Ej: {ej*1e-9:.3f} GHz, Ec: {ec*1e-6:.3f} MHz, Ic: {ic*1e9:.3f} nA, Rj: {Rj+Rx:.3f} Ohm")
+        kwargs["R_j"] = Rj
+        kwargs["R_jx"] = Rx
         return cls(E_j=ej, E_c=ec, **kwargs)
 
     def alpha(self):
@@ -508,10 +503,10 @@ class tunable_transmon(transmon):
         Initialize tunable transmon from critical current I_c.
         """
         E_j = i_c / (2 * e_0 * 2 * pi)
-        cls._Rx_ = kwargs.get("R_jx", 0.0)
-        cls._Rj_ = Ic_to_R(i_c, mat=kwargs.get("mat", sc_metal(1.14, 25e-3))) - cls._Rx_
-        kwargs["R_j"] = cls._Rj_
-        kwargs["R_jx"] = cls._Rx_
+        Rx = kwargs.get("R_jx", 0.0) or 0.0
+        Rj = Ic_to_R(i_c, mat=kwargs.get("mat", sc_metal(1.14, 25e-3))) - Rx
+        kwargs["R_j"] = Rj
+        kwargs["R_jx"] = Rx
         return cls(E_j=E_j, **kwargs)
     
     def Ej1(self):
