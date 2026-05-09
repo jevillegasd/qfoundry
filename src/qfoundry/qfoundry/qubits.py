@@ -104,8 +104,8 @@ class transmon(circuit):
         """
         Initialize transmon from critical current I_c.
         """
-        E_j = i_c / (2 * e_0 * 2 * pi)
-        Rx = kwargs.get("R_jx", 0.0) or 0.0
+        E_j = i_c / (4 * e_0 * pi)
+        Rx = kwargs.get("R_jx", 0.0)
         Rj = Ic_to_R(i_c, mat=kwargs.get("mat", sc_metal(1.14, 25e-3))) - Rx
         kwargs["R_j"] = Rj
         kwargs["R_jx"] = Rx
@@ -147,7 +147,7 @@ class transmon(circuit):
         This uses the approximation f01 = sqrt(8 * Ej * Ec) - Ec to find the
         required Ej for a given Ec.
         """
-        Rx = kwargs.get("R_jx", 0.0) or 0.0
+        Rx = kwargs.get("R_jx", 0.0)
         Rj = kwargs.get("R_j", None)
 
         E_c = kwargs.get("E_c", None)
@@ -160,13 +160,16 @@ class transmon(circuit):
         ec = e_0**2 / (2 * C_sum) / h_0
 
         # Calculate required Ej from f01 and Ec
-        ej = (f01 + ec) ** 2 / (8 * ec)
-        ic = ej * 2 * e_0 * (2 * pi)
+        # Correction for high order correction in the cosine potential, 
+        # see https://arxiv.org/pdf/cond-mat/0703002 eq. 3.1 and eq. 3.4
+        # TODO: Replace this approximation with a numerical solution using a Mathieu 
+        # solver or a simple Hamiltonian diagonalization.
+        ej = (f01 + ec) ** 2 / (8 * ec) + (1+ ec/(4*(f01+ec))) 
+        ic = ej * 4 * e_0 * pi
 
         if Rj is None:  # The resistance value is only calculated if not provided
             Rj = Ic_to_R(ic, mat=kwargs.get("mat", sc_metal(1.14, 25e-3))) - Rx
 
-        print(f"Calculated Ej: {ej*1e-9:.3f} GHz, Ec: {ec*1e-6:.3f} MHz, Ic: {ic*1e9:.3f} nA, Rj: {Rj+Rx:.3f} Ohm")
         kwargs["R_j"] = Rj
         kwargs["R_jx"] = Rx
         return cls(E_j=ej, E_c=ec, **kwargs)
@@ -176,7 +179,9 @@ class transmon(circuit):
         Anharmonicity
         """
         from numpy.linalg import LinAlgError 
-        alpha = -self.Ec() # Analytical approximation for anharmonicity, in Hz
+        from numpy import sqrt
+        # Analytical approximation for anharmonicity, in Hz
+        alpha = -self.Ec()* (1-1/4*sqrt(self.Ec()/(8*self.Ej()))) # https://arxiv.org/pdf/cond-mat/0703002 eq. 3.1 and eq. 3.4
         if self.qmodel is not None:
             try: 
                 return self.qmodel.anharmonicity() * 1e9
@@ -502,8 +507,8 @@ class tunable_transmon(transmon):
         """
         Initialize tunable transmon from critical current I_c.
         """
-        E_j = i_c / (2 * e_0 * 2 * pi)
-        Rx = kwargs.get("R_jx", 0.0) or 0.0
+        E_j = i_c / (4 * e_0 * pi)
+        Rx = kwargs.get("R_jx", 0.0)
         Rj = Ic_to_R(i_c, mat=kwargs.get("mat", sc_metal(1.14, 25e-3))) - Rx
         kwargs["R_j"] = Rj
         kwargs["R_jx"] = Rx
