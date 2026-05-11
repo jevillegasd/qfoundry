@@ -34,6 +34,7 @@ References
 [Rosenberg2017]  Rosenberg et al., npj Quantum Inf. 3, 42 (2017).
 [Ku2020]         Ku et al., PRX Quantum 2, 040305 (2020).
 [Jeffrey2014]    Jeffrey et al., Phys. Rev. Lett. 112, 190504 (2014).
+[Wallraff2004]   Wallraff et al., Nature 431, 162 (2004).
 """
 
 from __future__ import annotations
@@ -247,7 +248,7 @@ class edge(ABC):
             \zeta = \frac{2g^2 \alpha_0}{\Delta(\Delta + \alpha_0)}
                   + \frac{2g^2 \alpha_1}{-\Delta(-\Delta + \alpha_1)}
 
-        where :math:`\Delta = \omega_0 - \omega_1` (rad s⁻¹) is the bare
+        where :math:`\Delta = (\omega_0 - \omega_1)/(2\pi)` (Hz) is the bare
         qubit detuning, :math:`\alpha_i` is the anharmonicity of qubit *i*
         (Hz), and :math:`g` is the transverse coupling (Hz).
 

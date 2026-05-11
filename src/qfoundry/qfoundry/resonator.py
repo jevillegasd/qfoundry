@@ -640,7 +640,7 @@ class cpw_resonator(circuit):
             
         return coupling_strength**2 * self.kappa_ext() / detuning**2
     
-    def V_zpf(self, photon_number=1):
+    def V_zpf(self):
         r"""Zero-point voltage fluctuation of the resonator (V).
 
         For a lumped-element LC resonator the voltage ZPF amplitude is:
@@ -649,26 +649,36 @@ class cpw_resonator(circuit):
 
             V_\mathrm{zpf} = \sqrt{\frac{\hbar\,\omega_0}{2\,C}}
 
-        For a Fock state :math:`|n\rangle`, the RMS voltage is
-        :math:`V_\mathrm{zpf}\sqrt{n}`.
-
-        Parameters
-        ----------
-        photon_number : float, default=1
-            Photon occupation number :math:`n`.
 
         Returns
         -------
         float
-            :math:`V_\mathrm{zpf}\,\sqrt{n}` in Volts.
+            :math:`V_\mathrm{zpf}\` in Volts.
 
         References
         ----------
         Wallraff et al. (2004) Nature 431, 162 — Eq. (1);
         Krantz et al. (2019) Appl. Phys. Rev. 6, 021318 — Eq. (17).
         """
-        return np.sqrt(hbar * self.w0() * photon_number / (2 * self.C()))
+        return np.sqrt(hbar * self.w0() / (2 * self.capacitance))
     
+    def V_rms(self, photon_number=0):
+        """
+        RMS voltage for a given photon number.
+        
+        Parameters
+        ----------
+        photon_number : float, default=1
+            Photon occupation number n
+
+        Returns
+        -------
+        float
+            RMS voltage in Volts.
+        """
+        quantum_scaling = np.sqrt(2 * photon_number + 1)
+        return self.V_zpf() * quantum_scaling
+
     def critical_photon_number(self, critical_current):
         """
         Estimate the critical photon number for onset of nonlinearity.
@@ -686,12 +696,15 @@ class cpw_resonator(circuit):
         Notes
         -----
         This estimates when the RF current approaches the critical current,
-        marking the onset of strong nonlinearity. Uses I_RF = ω₀ * C * V_RMS.
+        marking the onset of strong nonlinearity. Uses I_rms = ω₀ * C * V_RMS.
+
+        Note: A resdonator does not have a critical current itself, but this can be used to estimate the
+        photon number at which a junction with given critical current would become nonlinear when connected to the resonator.
         """
-        # RF current for one photon
-        I_rf_one_photon = self.w0() * self.C() * self.V_zpf(photon_number=1)
+        # rms current for one photon
+        I_rms_one_photon = self.w0() * self.C() * self.V_rms(photon_number=1)
         
-        return (critical_current / I_rf_one_photon)**2
+        return (critical_current / (np.sqrt(2) * I_rms_one_photon))**2
 
     def fwhm(self, Cin=None):
         if Cin == None:

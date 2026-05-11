@@ -72,7 +72,7 @@ class circuit:
         """Return a callable Z(f) = Z_self(f) + Z_other(f)."""
         return lambda f: self.Z(f) + o.Z(f)
 
-    def __multiply__(self, o):
+    def __mul__(self, o):
         """Return a callable Z(f) = Z_self(f) * Z_other(f)."""
         return lambda f: self.Z(f) * o.Z(f)
 

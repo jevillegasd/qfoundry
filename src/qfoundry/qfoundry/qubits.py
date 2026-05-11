@@ -17,6 +17,8 @@ References
 - Krantz et al., Appl. Phys. Rev. 6, 021318 (2019) / arXiv:1904.06560
 """
 
+from abc import ABC, abstractmethod
+
 from qfoundry.circuit import circuit
 from qfoundry.resonator import cpw, cpw_resonator
 from qfoundry.utils import sc_metal, Ic_to_R, R_to_Ic
@@ -33,7 +35,7 @@ from scipy.linalg import eigh
 import inspect
 
 
-class qubit:
+class qubit(ABC):
     r"""Base mixin for qubit circuits.
 
     Provides zero-point fluctuation (ZPF) parameters and other qubit-generic
@@ -151,6 +153,7 @@ class qubit:
     # Abstract interface — subclasses must implement
     # ------------------------------------------------------------------
 
+    @abstractmethod
     def Ej(self) -> float:
         r"""Josephson energy in Hz (i.e. :math:`E_J / h`).  Subclasses must override.
 
@@ -164,8 +167,8 @@ class qubit:
         ----------
         Koch et al. (2007) Eq. (2.2).
         """
-        raise NotImplementedError("Subclasses must implement Ej()")
 
+    @abstractmethod
     def Ec(self) -> float:
         r"""Charging energy in Hz (i.e. :math:`E_C / h`).  Subclasses must override.
 
@@ -177,57 +180,35 @@ class qubit:
         ----------
         Koch et al. (2007) Eq. (2.3).
         """
-        raise NotImplementedError("Subclasses must implement Ec()")
 
     # ------------------------------------------------------------------
     # Derived circuit quantities — computed from Ej and Ec
     # ------------------------------------------------------------------
 
-    def C(self) -> float:
-        r"""Total qubit capacitance :math:`C_\Sigma` (F), computed from :meth:`Ec`.
+    def Ic(self) -> float:
+        r"""Critical current of the Josephson junction (A).
 
         .. math::
 
-            C_\Sigma = \frac{e^2}{2\,E_C}
+            :math:`I_c = E_J \cdot 4\pi e` (with :math:`E_J` in Hz units).
 
         Returns
         -------
         float
-            Capacitance in Farads.
-
-        References
-        ----------
-        Koch et al. (2007) Eq. (2.3).
-        """
-        return e_0**2 / (2.0 * self.Ec()) / h_0
-
-    def L(self) -> float:
-        r"""Josephson inductance at zero phase (H), computed from :meth:`Ej`.
-
-        .. math::
-
-            L_J = \frac{\Phi_0}{2\pi\, I_c} = \frac{h}{4\pi\, e\, I_c}
-
-        where :math:`I_c = E_J \cdot 4\pi e` (with :math:`E_J` in Hz units).
-
-        Returns
-        -------
-        float
-            Josephson inductance in Henries.
+            Critical current in Amperes.
 
         References
         ----------
         Koch et al. (2007) Eq. (2.2).
         """
-        Ic = self.Ej() * 4.0 * pi * e_0
-        return h_0 / (2.0 * e_0 * Ic)
-
+        return self.Ej() * 4.0 * pi * e_0
+    
 
 class transmon(qubit, circuit):
     """
     Single Junction Qubit
         E_j:    float               # Josephson energy
-        C_sum:  float=67.5e-15,
+        C_sigma:  float=67.5e-15,
         C_g:    float  =21.7e-15,
         C_k:    float  =36.7e-15,
         C_d:   float =0.0e-15,
@@ -259,9 +240,9 @@ class transmon(qubit, circuit):
         self._ec_ = E_c   
 
         if E_c is None:
-            C_sum = kwargs.get("C_sum", None)
-            assert C_sum is not None, "Either E_c or C_sum should not be provided."
-            self._ec_ = e_0**2 / (2 * C_sum) / h_0
+            C_sigma = kwargs.get("C_sigma", None)
+            assert C_sigma is not None, "Either E_c or C_sigma should be provided."
+            self._ec_ = e_0**2 / (2 * C_sigma) / h_0
 
         # Junction resistances are Josephson-junction fabrication parameters used to
         # derive the critical current (Ambegaokar-Baratoff relation).  They are *not*
@@ -291,83 +272,141 @@ class transmon(qubit, circuit):
                 truncated_dim=self.truncated_dim,
             )
  
-        # circuit base-class parameters (lumped LC model of the qubit)
-        # _C_ and _L_ represent the total qubit capacitance and Josephson inductance.
-        # _R_ represents *classical* dissipation (e.g. quasiparticle loss, substrate
-        # scattering) — NOT the junction normal-state resistance (_Rj_/_Rx_), which
-        # is a fabrication parameter used only to derive Ic.  Defaults to np.inf
-        # (ideal lossless qubit).  Pass R_loss=<value> to model classical damping.
-        self._C_ = e_0**2 / (2 * self._ec_) / h_0
-        self._L_ = h_0 / (2 * e_0 * self.Ic())
         self._R_ = kwargs.get("R_loss", float('inf'))
         
     @classmethod
-    def from_Csum(cls, C_sum: float, **kwargs):
+    def from_Csigma(cls, C_sigma: float, **kwargs):
+        """Initialize transmon from total qubit capacitance :math:`C_\\Sigma`.
+
+        Derives the charging energy :math:`E_C = e^2 / (2 C_\\Sigma)` and
+        constructs the transmon.  All remaining keyword arguments are forwarded
+        to :meth:`__init__`.
+
+        Parameters
+        ----------
+        C_sigma : float
+            Total qubit capacitance :math:`C_\\Sigma` in Farads.
+        **kwargs
+            Additional keyword arguments passed to :meth:`__init__`
+            (e.g. ``E_j``, ``C_g``, ``res_ro``, ``mat``).
+
+        Returns
+        -------
+        transmon
         """
-        Initialize transmon from total capacitance C_sum.
-        """
-        ec = e_0**2 / (2 * C_sum) / h_0 # https://arxiv.org/pdf/cond-mat/0703002 eq. 2.1*
+        ec = e_0**2 / (2 * C_sigma) / h_0 # https://arxiv.org/pdf/cond-mat/0703002 eq. 2.1*
         ej = kwargs.get("E_j", 0.0)
         return cls(E_j=ej, E_c=ec, **kwargs)
 
     @classmethod
-    def from_ic(cls, i_c: float, **kwargs):
-        """
-        Initialize transmon from critical current I_c.
+    def from_ic(cls, i_c: float, R_jx: float = 0.0, **kwargs):
+        """Initialize transmon from critical current :math:`I_c`.
+
+        Derives the Josephson energy :math:`E_J = I_c / (4 e \\pi)` and
+        estimates the normal-state junction resistance via the
+        Ambegaokar–Baratoff relation.
+
+        Parameters
+        ----------
+        i_c : float
+            Critical current in Amperes.
+        R_jx : float, optional
+            Series parasitic resistance correction (e.g. contact/lead
+            resistance) in Ohms.  The stored junction resistance is
+            ``R_j = R_AB - R_jx``.  Default is ``0.0``.
+        **kwargs
+            Additional keyword arguments passed to :meth:`__init__`
+            (e.g. ``E_c``, ``C_sigma``, ``C_g``, ``res_ro``, ``mat``).
+
+        Returns
+        -------
+        transmon
         """
         E_j = i_c / (4 * e_0 * pi)
-        Rx = kwargs.get("R_jx", 0.0)
-        Rj = Ic_to_R(i_c, mat=kwargs.get("mat", sc_metal(1.14, 25e-3))) - Rx
+        Rj = Ic_to_R(i_c, mat=kwargs.get("mat", sc_metal(1.14, 25e-3))) - R_jx
         kwargs["R_j"] = Rj
-        kwargs["R_jx"] = Rx
+        kwargs["R_jx"] = R_jx
         return cls(E_j=E_j, **kwargs)
 
     @classmethod
-    def from_rj(cls, R_j: float, **kwargs):
-        """
-        Initialize transmon from junction resistance R_j.
-        The saved junction resistance is R_j, but the effective resistance 
-        used to calculate the qubit properties is R_j - R_jx.
+    def from_rj(cls, R_j: float, R_jx: float = 0.0, **kwargs):
+        """Initialize transmon from normal-state junction resistance :math:`R_J`.
+
+        Derives the critical current via the Ambegaokar–Baratoff relation using
+        the effective resistance ``R_j + R_jx``, then computes
+        :math:`E_J = I_c / (4 e \\pi)`.
+
+        Parameters
+        ----------
+        R_j : float
+            Measured normal-state junction resistance in Ohms.
+        R_jx : float, optional
+            Series parasitic resistance correction in Ohms.  The effective
+            resistance used for the AB relation is ``R_j + R_jx``.  Default
+            is ``0.0``.
+        **kwargs
+            Additional keyword arguments passed to :meth:`__init__`.
+            Must include either ``E_c`` or ``C_sigma``.
+
+        Returns
+        -------
+        transmon
         """
         from numpy import isnan
-        Rx = kwargs.get("R_jx", 0.0)
-        if Rx is None or isnan(Rx):
-            Rx = 0.0
+        if R_jx is None or isnan(R_jx):
+            R_jx = 0.0
 
         mat = kwargs.get("mat", sc_metal(1.14, 25e-3))
 
         E_c = kwargs.get("E_c", None)
         if E_c is None:
-            C_sum = kwargs.get("C_sum", None)
-            assert C_sum is not None, "C_sum must be provided if E_c is not."
-            E_c = e_0**2 / (2 * C_sum) / h_0
+            C_sigma = kwargs.get("C_sigma", None)
+            assert C_sigma is not None, "C_sigma must be provided if E_c is not."
+            E_c = e_0**2 / (2 * C_sigma) / h_0
 
-        i_c = R_to_Ic(R_j + Rx, mat=mat)
+        i_c = R_to_Ic(R_j + R_jx, mat=mat)
         E_j = i_c / (2 * e_0 * 2 * pi)
         kwargs["R_j"] = R_j
-        kwargs["R_jx"] = Rx
+        kwargs["R_jx"] = R_jx
         kwargs["E_c"] = E_c
         kwargs["E_j"] = E_j
         return cls(**kwargs)
 
     @classmethod
-    def from_f01(cls, f01: float, **kwargs):
-        """
-        Initialize transmon from a target qubit frequency f01.
+    def from_f01(cls, f01: float, R_jx: float = 0.0, **kwargs):
+        """Initialize transmon from a target qubit frequency :math:`f_{01}`.
 
-        This uses the approximation f01 = sqrt(8 * Ej * Ec) - Ec to find the
-        required Ej for a given Ec.
+        Inverts the leading-order approximation
+        :math:`f_{01} \\approx \\sqrt{8 E_J E_C} - E_C` (Koch 2007, Eq. 3.1)
+        to find the required :math:`E_J` for a given :math:`E_C`, then
+        estimates the junction resistance via the Ambegaokar–Baratoff relation.
+
+        Parameters
+        ----------
+        f01 : float
+            Target qubit transition frequency in Hz.
+        R_jx : float, optional
+            Series parasitic resistance correction in Ohms.  Subtracted from
+            the AB-derived resistance to obtain the stored ``R_j``.  Default
+            is ``0.0``.
+        **kwargs
+            Additional keyword arguments passed to :meth:`__init__`.
+            Must include either ``E_c`` or ``C_sigma``.
+            If ``R_j`` is provided, the junction resistance is not recomputed.
+
+        Returns
+        -------
+        transmon
         """
-        Rx = kwargs.get("R_jx", 0.0)
         Rj = kwargs.get("R_j", None)
 
         E_c = kwargs.get("E_c", None)
         if E_c is None:
-            C_sum = kwargs.get("C_sum", None)
-            assert C_sum is not None, "Either E_c or C_sum must be provided."
-            E_c = e_0**2 / (2 * C_sum) / h_0
+            C_sigma = kwargs.get("C_sigma", None)
+            assert C_sigma is not None, "Either E_c or C_sigma must be provided."
+            E_c = e_0**2 / (2 * C_sigma) / h_0
 
-        # Use the resolved E_c (whether passed directly or derived from C_sum)
+        # Use the resolved E_c (whether passed directly or derived from C_sigma)
         ec = E_c
 
         # Invert f01 = sqrt(8*Ej*Ec) - Ec  (Koch 2007 Eq. 3.1, leading order)
@@ -376,10 +415,10 @@ class transmon(qubit, circuit):
         ic = ej * 4 * e_0 * pi
 
         if Rj is None:  # The resistance value is only calculated if not provided
-            Rj = Ic_to_R(ic, mat=kwargs.get("mat", sc_metal(1.14, 25e-3))) - Rx
+            Rj = Ic_to_R(ic, mat=kwargs.get("mat", sc_metal(1.14, 25e-3))) - R_jx
 
         kwargs["R_j"] = Rj
-        kwargs["R_jx"] = Rx
+        kwargs["R_jx"] = R_jx
         return cls(E_j=ej, E_c=ec, **kwargs)
 
     def alpha(self):
@@ -399,12 +438,17 @@ class transmon(qubit, circuit):
 
     def L(self, phi=0.0):
         """
-        RLC circuit modcel josephson inductance for the ground state
+        RLC circuit model Josephson inductance for the ground state
         """
         from numpy import cos
 
         return h_0 / (2 * e_0 * self.Ic()) * 1 / (cos(phi))
-        # return (self.f01()*sqrt(self.C()))**-2
+
+    def C(self):
+        """
+        RLC circuit model capacitance for the ground state
+        """
+        return e_0**2 / (2 * self.Ec() * h_0)
 
     def Ic(self):
         return self._ej_ * 2 * e_0 * (2 * pi)
@@ -436,8 +480,8 @@ class transmon(qubit, circuit):
         """
         nj = self.nj(j)
 
-        C_sum = self.C()
-        beta    = self.C_g / (C_sum) # Participation ratio
+        C_sigma = self.C()
+        beta    = self.C_g / (C_sigma) # Participation ratio
         V_zpf    = self.res_ro.V_zpf() # Resonator zero-point voltage fluctuation
 
         g_j = beta * V_zpf * nj * e_0/h_0
@@ -452,7 +496,7 @@ class transmon(qubit, circuit):
         https://arxiv.org/pdf/cond-mat/0703002 eq. 3.3
 
         g01 ~ 2 * beta * e * Vrms * n01 / h
-        where beta is the participation ratio (beta ~= C_g/ (C_sum)) [coupling capaictance over total capacitance]
+        where beta is the participation ratio (beta ~= C_g/ (C_sigma)) [coupling capaictance over total capacitance]
         e is the elementary charge,
         Vrms is the root mean square voltage across the resonator, and hbar is the reduced Planck's constant.
         The Vrms can be calculated from the resonator frequency and its capacitance as
@@ -465,7 +509,7 @@ class transmon(qubit, circuit):
 
         """
 
-        C_sum = self.C()
+        C_sigma = self.C()
         f_r     = self.res_ro.f0() # Resonator frequency
         C_r     = self.res_ro.C() # Resonator capacitance (used in fallback)
         V_zpf    = self.res_ro.V_zpf() # Resonator zero-point voltage fluctuation
@@ -473,9 +517,9 @@ class transmon(qubit, circuit):
         try:
             assert self.n01() is not None
         except:
-            return C_g/2*sqrt(f_r*self.f01()/ (C_sum*C_r))  # Fallback if n01 is not available
+            return C_g/2*sqrt(f_r*self.f01()/ (C_sigma*C_r))  # Fallback if n01 is not available
         
-        beta    = self.C_g / C_sum # Participation ratio
+        beta    = self.C_g / C_sigma # Participation ratio
         return 2* beta * e_0 * V_zpf * self.n01() / h_0  # in Hz
         # return 2 * beta * e_0 * V_zpf * self.n_matrix()[0,1] / h_0 # Numerical alternative for n01
 
@@ -608,7 +652,7 @@ class transmon(qubit, circuit):
         Rabi frequency under a drive with root mean square voltage V_rms
         """
         from numpy import floating
-        C_sum = self.C()
+        C_sigma = self.C()
         C_c = self.C_d if isinstance(self.C_d, (floating, float)) else abs(diff(self.C_d)[0])
 
         try:
@@ -616,7 +660,7 @@ class transmon(qubit, circuit):
         except:
             n01 = 1.2
 
-        beta = C_c / C_sum  # Participation ratio
+        beta = C_c / C_sigma  # Participation ratio
         return (2 * e_0 * n01 * beta * V_rms)/hbar # Rabi frequency
     
     def tau_rabi(self, P_in=-63, Z0=50):
