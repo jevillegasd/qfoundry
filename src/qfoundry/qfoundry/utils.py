@@ -123,20 +123,15 @@ class sc_metal:
 def Ic_to_R(Ic, mat=sc_metal(1.14, T=20e-3)):
     """
     Convert Ic to R.
-    R = pi*Delta/(2*e_0*Ic)*tanh(Delta/(2*k_B*T))
-    where Delta is the superconducting gap.
-    #https://www.pearsonhighered.com/assets/samplechapter/0/1/3/2/0132627426.pdf page 162
     """
+    from josephson import JosephsonJunctionAnalyzer
 
-    return (
-        pi * mat.sc_gap() / (2 * e_0 * Ic) * tanh(mat.sc_gap() / (2 * k_B * mat.T))
-    )
+    return JosephsonJunctionAnalyzer().Ic_to_R(Ic, mat.sc_gap(), T=mat.T)
 
 
 def R_to_Ic(R, mat=sc_metal(1.14, T=20e-3)):
     """
     Convert resistance to critical current.
-    Ic = pi*Delta/(2*e_0*R_jx)*tanh(Delta/(2*k_B*T))
-    where Delta is the superconducting gap.
     """
-    return pi * mat.sc_gap() / (2 * e_0 * R) * tanh(mat.sc_gap() / (2 * k_B * mat.T))
+    from josephson import JosephsonJunctionAnalyzer
+    return JosephsonJunctionAnalyzer().R_to_Ic(R, mat.sc_gap(), T=mat.T)

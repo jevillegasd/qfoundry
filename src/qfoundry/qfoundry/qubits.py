@@ -507,7 +507,7 @@ class tunable_transmon(transmon):
         """
         Initialize tunable transmon from critical current I_c.
         """
-        E_j = i_c / (2 * e_0 * 2 * pi)
+        E_j = i_c / (4 * e_0 * pi)
         cls._Rx_ = kwargs.get("R_jx", 0.0)
         cls._Rj_ = Ic_to_R(i_c, mat=kwargs.get("mat", sc_metal(1.14, 25e-3))) - cls._Rx_
         kwargs["R_j"] = cls._Rj_
