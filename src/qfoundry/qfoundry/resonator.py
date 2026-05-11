@@ -17,80 +17,7 @@ import numpy as np
 import scqubits as scq
 
 from qfoundry.waveguides import cpw
-
-class circuit:
-    """
-    A general RLC electrical circuit.
-
-    Attributes
-    ----------
-        R:float=np.inf
-            Circuit equivalent resistance in Ohms
-        L:float = np.inf
-            Circuit equivalent inductance in Henry
-        C:float = 0.0
-            Circuit equivalent capacitrance in Farads
-        n:float = 0.0
-            RCL resonance mode
-        type: str = 'p'
-            Circuit type. p is capacitor in parallel and s in series capacitor,
-
-    Methods
-    -------
-
-    """
-
-    def __init__(
-        self,
-        R: float = np.inf,
-        L: float = np.inf,
-        C: float = 0,
-        n: float = 1,
-        c_type: str = "p",
-    ):  # Type is p for parallel RLC and s for series
-        self._R_ = R
-        self._L_ = L
-        self._C_ = C
-        self.n = n
-        self.c_type = c_type
-
-    def _Zs_(self, f):
-        w = 2 * np.pi * self._f0_()
-        return self.R() + +1j * w * self.L() + 1 / (1j * w * self.C())
-
-    def _Zp_(self, f, n):
-        w = 2 * np.pi * self._f0_()
-        return 1 / (1 / self.R() + 1 / (1j * w * self.L() * n) + 1j * w * self.C() * n)
-
-    def _f0_(self):
-        return 1 / (2 * np.pi * np.sqrt(self.L() * self.C()))
-
-    def Q(self):
-        return self._R_ * np.sqrt(self.C() / self.L())
-
-    def Z(self, f):
-        """
-        Frequency domain numeric transfer function (impedance)
-        """
-        if self.c_type == "s":
-            return self._Zs_(f)
-        else:
-            return self._Zp_(f)
-
-    def __add__(self, o):
-        return self.Z + o.Z
-
-    def __multiply__(self, o):
-        return self.Z * o.Z
-
-    def R(self):
-        return self._R_
-
-    def C(self):
-        return self._C_
-
-    def L(self):
-        return self._L_
+from qfoundry.circuit import circuit  # re-exported for backward compatibility
 
 
 class cpw_resonator(circuit):
@@ -713,24 +640,32 @@ class cpw_resonator(circuit):
             
         return coupling_strength**2 * self.kappa_ext() / detuning**2
     
-    def voltage_rms(self, photon_number=1):
-        """
-        RMS voltage across the resonator for given photon number.
-        
+    def V_zpf(self, photon_number=1):
+        r"""Zero-point voltage fluctuation of the resonator (V).
+
+        For a lumped-element LC resonator the voltage ZPF amplitude is:
+
+        .. math::
+
+            V_\mathrm{zpf} = \sqrt{\frac{\hbar\,\omega_0}{2\,C}}
+
+        For a Fock state :math:`|n\rangle`, the RMS voltage is
+        :math:`V_\mathrm{zpf}\sqrt{n}`.
+
         Parameters
         ----------
         photon_number : float, default=1
-            Number of photons in the resonator
-            
+            Photon occupation number :math:`n`.
+
         Returns
         -------
         float
-            RMS voltage in V
-            
-        Notes
-        -----
-        Uses V_rms = √(ℏω₀/(2C)) * √n for the voltage across the capacitor.
-        This is useful for calculating nonlinear effects and power handling.
+            :math:`V_\mathrm{zpf}\,\sqrt{n}` in Volts.
+
+        References
+        ----------
+        Wallraff et al. (2004) Nature 431, 162 — Eq. (1);
+        Krantz et al. (2019) Appl. Phys. Rev. 6, 021318 — Eq. (17).
         """
         return np.sqrt(hbar * self.w0() * photon_number / (2 * self.C()))
     
@@ -754,7 +689,7 @@ class cpw_resonator(circuit):
         marking the onset of strong nonlinearity. Uses I_RF = ω₀ * C * V_RMS.
         """
         # RF current for one photon
-        I_rf_one_photon = self.w0() * self.C() * self.voltage_rms(photon_number=1)
+        I_rf_one_photon = self.w0() * self.C() * self.V_zpf(photon_number=1)
         
         return (critical_current / I_rf_one_photon)**2
 

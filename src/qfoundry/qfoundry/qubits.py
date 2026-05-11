@@ -1,12 +1,24 @@
 """Transmon and tunable transmon models.
 
+Class hierarchy
+---------------
+:class:`qubit`
+    Mixin base for any qubit circuit.  Provides zero-point fluctuation (ZPF)
+    parameters and other qubit-generic derived quantities.
+:class:`transmon` (:class:`qubit`, :class:`~qfoundry.resonator.circuit`)
+    Single-junction transmon; inherits both the qubit ZPF interface and the
+    RLC circuit model.
+:class:`tunable_transmon` (:class:`transmon`)
+    SQUID-based flux-tunable transmon.
+
 References
 ----------
 - Koch et al., Phys. Rev. A 76, 042319 (2007)
 - Krantz et al., Appl. Phys. Rev. 6, 021318 (2019) / arXiv:1904.06560
 """
 
-from qfoundry.resonator import cpw, circuit, cpw_resonator
+from qfoundry.circuit import circuit
+from qfoundry.resonator import cpw, cpw_resonator
 from qfoundry.utils import sc_metal, Ic_to_R, R_to_Ic
 import scqubits as scq
 
@@ -20,7 +32,198 @@ from math import factorial
 from scipy.linalg import eigh
 import inspect
 
-class transmon(circuit):
+
+class qubit:
+    r"""Base mixin for qubit circuits.
+
+    Provides zero-point fluctuation (ZPF) parameters and other qubit-generic
+    derived quantities.  Subclasses are expected to expose :meth:`Ej`,
+    :meth:`Ec`, :meth:`C`, :meth:`L`, and :meth:`omega01`.
+
+    ZPF quantities
+    --------------
+    The four fundamental ZPF amplitudes for a Josephson circuit in the
+    harmonic approximation are:
+
+    .. math::
+
+        n_\mathrm{zpf}   &= \left(\frac{E_J}{8E_C}\right)^{1/4}\frac{1}{\sqrt{2}} \\
+        \varphi_\mathrm{zpf} &= \left(\frac{8E_C}{E_J}\right)^{1/4}\frac{1}{\sqrt{2}} \\
+        I_\mathrm{zpf}   &= \sqrt{\frac{\hbar\,\omega_{01}}{2L_J}} \\
+        V_\mathrm{zpf}   &= \sqrt{\frac{\hbar\,\omega_{01}}{2C_\Sigma}}
+
+    Note that :math:`n_\mathrm{zpf}\cdot\varphi_\mathrm{zpf} = 1/2`, consistent
+    with the canonical commutation relation
+    :math:`[\hat{\varphi},\hat{n}] = i`.
+
+    References
+    ----------
+    - Koch et al., Phys. Rev. A 76, 042319 (2007), Eq. (2.7)
+    - Krantz et al., Appl. Phys. Rev. 6, 021318 (2019), Eq. (17-18)
+    """
+
+    def I_zpf(self) -> float:
+        r"""Zero-point current fluctuation (A).
+
+        .. math::
+
+            I_\mathrm{zpf} = \sqrt{\frac{\hbar\,\omega_{01}}{2\,L_J}}
+
+        where :math:`L_J` is the Josephson inductance at the qubit operating
+        point (``self.L()``).
+
+        Returns
+        -------
+        float
+            :math:`I_\mathrm{zpf}` in Amperes.
+
+        References
+        ----------
+        Koch et al. (2007) Eq. (2.7); Krantz et al. (2019) Eq. (18).
+        """
+        return sqrt(hbar * self.omega01() / (2.0 * self.L()))
+
+    def V_zpf(self) -> float:
+        r"""Zero-point voltage fluctuation (V).
+
+        .. math::
+
+            V_\mathrm{zpf} = \sqrt{\frac{\hbar\,\omega_{01}}{2\,C_\Sigma}}
+
+        Returns
+        -------
+        float
+            :math:`V_\mathrm{zpf}` in Volts.
+
+        References
+        ----------
+        Krantz et al. (2019) Eq. (17).
+        """
+        return sqrt(hbar * self.omega01() / (2.0 * self.C()))
+
+    def phi_zpf(self) -> float:
+        r"""Zero-point phase (flux) fluctuation (dimensionless, reduced flux units).
+
+        In the harmonic approximation of the cosine potential:
+
+        .. math::
+
+            \varphi_\mathrm{zpf} = \left(\frac{8\,E_C}{E_J}\right)^{1/4}
+                                   \frac{1}{\sqrt{2}}
+
+        Returns
+        -------
+        float
+            :math:`\varphi_\mathrm{zpf}` (dimensionless).
+
+        References
+        ----------
+        Koch et al. (2007) Eq. (2.7).
+        """
+        return (8.0 * self.Ec() / self.Ej()) ** 0.25 / sqrt(2.0)
+
+    def n_zpf(self) -> float:
+        r"""Zero-point charge fluctuation (in units of Cooper pairs, i.e., 2e).
+
+        In the harmonic approximation:
+
+        .. math::
+
+            n_\mathrm{zpf} = \left(\frac{E_J}{8\,E_C}\right)^{1/4}
+                             \frac{1}{\sqrt{2}}
+
+        This equals the charge matrix element
+        :math:`|\langle 0 |\hat{n}| 1 \rangle|` in the transmon regime
+        (see :meth:`transmon.n01`).
+
+        Returns
+        -------
+        float
+            :math:`n_\mathrm{zpf}` (dimensionless).
+
+        References
+        ----------
+        Koch et al. (2007) Eq. (2.7).
+        """
+        return (self.Ej() / (8.0 * self.Ec())) ** 0.25 / sqrt(2.0)
+
+    # ------------------------------------------------------------------
+    # Abstract interface — subclasses must implement
+    # ------------------------------------------------------------------
+
+    def Ej(self) -> float:
+        r"""Josephson energy in Hz (i.e. :math:`E_J / h`).  Subclasses must override.
+
+        The Josephson energy sets the tunnelling energy of the junction:
+
+        .. math::
+
+            E_J = \frac{\hbar\, I_c}{2e} = \frac{h\, I_c}{4\pi\, e}
+
+        References
+        ----------
+        Koch et al. (2007) Eq. (2.2).
+        """
+        raise NotImplementedError("Subclasses must implement Ej()")
+
+    def Ec(self) -> float:
+        r"""Charging energy in Hz (i.e. :math:`E_C / h`).  Subclasses must override.
+
+        .. math::
+
+            E_C = \frac{e^2}{2\,C_\Sigma}
+
+        References
+        ----------
+        Koch et al. (2007) Eq. (2.3).
+        """
+        raise NotImplementedError("Subclasses must implement Ec()")
+
+    # ------------------------------------------------------------------
+    # Derived circuit quantities — computed from Ej and Ec
+    # ------------------------------------------------------------------
+
+    def C(self) -> float:
+        r"""Total qubit capacitance :math:`C_\Sigma` (F), computed from :meth:`Ec`.
+
+        .. math::
+
+            C_\Sigma = \frac{e^2}{2\,E_C}
+
+        Returns
+        -------
+        float
+            Capacitance in Farads.
+
+        References
+        ----------
+        Koch et al. (2007) Eq. (2.3).
+        """
+        return e_0**2 / (2.0 * self.Ec()) / h_0
+
+    def L(self) -> float:
+        r"""Josephson inductance at zero phase (H), computed from :meth:`Ej`.
+
+        .. math::
+
+            L_J = \frac{\Phi_0}{2\pi\, I_c} = \frac{h}{4\pi\, e\, I_c}
+
+        where :math:`I_c = E_J \cdot 4\pi e` (with :math:`E_J` in Hz units).
+
+        Returns
+        -------
+        float
+            Josephson inductance in Henries.
+
+        References
+        ----------
+        Koch et al. (2007) Eq. (2.2).
+        """
+        Ic = self.Ej() * 4.0 * pi * e_0
+        return h_0 / (2.0 * e_0 * Ic)
+
+
+class transmon(qubit, circuit):
     """
     Single Junction Qubit
         E_j:    float               # Josephson energy
@@ -60,8 +263,11 @@ class transmon(circuit):
             assert C_sum is not None, "Either E_c or C_sum should not be provided."
             self._ec_ = e_0**2 / (2 * C_sum) / h_0
 
-        # Resistance values may be provided directly but not used for calculations unless the object
-        # is instantiated using from_rj() method.
+        # Junction resistances are Josephson-junction fabrication parameters used to
+        # derive the critical current (Ambegaokar-Baratoff relation).  They are *not*
+        # classical dissipation resistances and must not be confused with circuit._R_.
+        #   _Rj_  — normal-state junction resistance (from measurement or target spec)
+        #   _Rx_  — series parasitic resistance correction (e.g. contact/lead resistance)
         self._Rx_ = kwargs.get("R_jx", 0) or 0
         self._Rj_ = kwargs.get("R_j", 0) or 0
 
@@ -85,10 +291,15 @@ class transmon(circuit):
                 truncated_dim=self.truncated_dim,
             )
  
-        # super (circuit) parameters 
+        # circuit base-class parameters (lumped LC model of the qubit)
+        # _C_ and _L_ represent the total qubit capacitance and Josephson inductance.
+        # _R_ represents *classical* dissipation (e.g. quasiparticle loss, substrate
+        # scattering) — NOT the junction normal-state resistance (_Rj_/_Rx_), which
+        # is a fabrication parameter used only to derive Ic.  Defaults to np.inf
+        # (ideal lossless qubit).  Pass R_loss=<value> to model classical damping.
         self._C_ = e_0**2 / (2 * self._ec_) / h_0
         self._L_ = h_0 / (2 * e_0 * self.Ic())
-        self._R_ = self._Rj_ + self._Rx_
+        self._R_ = kwargs.get("R_loss", float('inf'))
         
     @classmethod
     def from_Csum(cls, C_sum: float, **kwargs):
@@ -153,18 +364,15 @@ class transmon(circuit):
         E_c = kwargs.get("E_c", None)
         if E_c is None:
             C_sum = kwargs.get("C_sum", None)
-            assert C_sum is not None, "C_sum must be provided if E_c is not."
+            assert C_sum is not None, "Either E_c or C_sum must be provided."
             E_c = e_0**2 / (2 * C_sum) / h_0
 
-        # Calculate Ec from C_sum
-        ec = e_0**2 / (2 * C_sum) / h_0
+        # Use the resolved E_c (whether passed directly or derived from C_sum)
+        ec = E_c
 
-        # Calculate required Ej from f01 and Ec
-        # Correction for high order correction in the cosine potential, 
-        # see https://arxiv.org/pdf/cond-mat/0703002 eq. 3.1 and eq. 3.4
-        # TODO: Replace this approximation with a numerical solution using a Mathieu 
-        # solver or a simple Hamiltonian diagonalization.
-        ej = (f01 + ec) ** 2 / (8 * ec) + (1+ ec/(4*(f01+ec))) 
+        # Invert f01 = sqrt(8*Ej*Ec) - Ec  (Koch 2007 Eq. 3.1, leading order)
+        # TODO: Replace with numerical Mathieu/Hamiltonian solver for higher accuracy.
+        ej = (f01 + ec) ** 2 / (8 * ec)
         ic = ej * 4 * e_0 * pi
 
         if Rj is None:  # The resistance value is only calculated if not provided
@@ -229,10 +437,8 @@ class transmon(circuit):
         nj = self.nj(j)
 
         C_sum = self.C()
-        f_r     = self.res_ro.f0() # Resonator angular frequency
-        C_r     = self.res_ro.C() # Resonator capacitance
         beta    = self.C_g / (C_sum) # Participation ratio
-        V_zpf    = sqrt(h_0 * f_r / (2 * C_r)) # Zero point fluctuation voltage
+        V_zpf    = self.res_ro.V_zpf() # Resonator zero-point voltage fluctuation
 
         g_j = beta * V_zpf * nj * e_0/h_0
         return g_j
@@ -260,9 +466,9 @@ class transmon(circuit):
         """
 
         C_sum = self.C()
-        f_r     = self.res_ro.f0() # Resonator angular frequency
-        C_r     = self.res_ro.C() # Resonator capacitance
-        V_zpf    = sqrt(h_0 * f_r / (2 * C_r)) # Zero point fluctuation voltage
+        f_r     = self.res_ro.f0() # Resonator frequency
+        C_r     = self.res_ro.C() # Resonator capacitance (used in fallback)
+        V_zpf    = self.res_ro.V_zpf() # Resonator zero-point voltage fluctuation
         C_g   = self.C_g
         try:
             assert self.n01() is not None
@@ -320,14 +526,15 @@ class transmon(circuit):
     
 
     def E01(self):
+        """01 transition energy in Hz.  E01 = E_1 - E_0 ≈ sqrt(8 Ej Ec) - Ec."""
         from numpy.linalg import LinAlgError
-        if self.qmodel is not None: 
+        if self.qmodel is not None:
             try:
                 return self.qmodel.E01() * 1e9
-            except LinAlgError as e:
-                return sqrt(8*self.Ej()*self.Ec())*(0.5) - self.Ec()
-        else:
-            return self.Ej() + sqrt(8*self.Ej()*self.Ec())*(0.5) - self.Ec()
+            except LinAlgError:
+                pass  # fall through to analytical approximation
+        # Koch et al. (2007) Eq. (3.1): E01 = sqrt(8*Ej*Ec) - Ec
+        return sqrt(8 * self.Ej() * self.Ec()) - self.Ec()
 
 
     def f01(self):
@@ -402,7 +609,7 @@ class transmon(circuit):
         """
         from numpy import floating
         C_sum = self.C()
-        C_c = self.C_d if isinstance(self.C_d, (floating, np.floating)) else abs(diff(self.C_d)[0])
+        C_c = self.C_d if isinstance(self.C_d, (floating, float)) else abs(diff(self.C_d)[0])
 
         try:
             n01 = self.n01()
@@ -427,7 +634,7 @@ class transmon(circuit):
             P_in = 10 ** (P_in / 10) * 1e-3  # Convert dBm to Watts
 
         V_rms = sqrt(2 * Z0 * P_in)  # Root mean square voltage
-        tau_pi = pi / self.omega_rabi(V_rms, Z0)  # Time for a pi pulse
+        tau_pi = pi / self.omega_rabi(V_rms)  # Time for a pi pulse
         return tau_pi
     
     def epsilon_m(self, m = 0):
@@ -552,8 +759,10 @@ class tunable_transmon(transmon):
             f01 = spectrum.energy_table[:,1]-spectrum.energy_table[:,0]
             return f01 * 1e9 if len(f01) > 1 else f01[0] * 1e9
         else:
+            # Effective Ej for asymmetric SQUID (Koch 2007 / Krantz 2019)
             Ej_eff = self.Ej() * sqrt(cos(pi * flux) ** 2 + self.d**2 * sin(pi * flux) ** 2)
-            return (sqrt(8 * Ej_eff * self.Ec())**0.5 - self.Ec()) # Fallback to approximate with the transmon formula
+            # Koch et al. (2007) Eq. (3.1): f01 ≈ sqrt(8*Ej_eff*Ec) - Ec
+            return sqrt(8 * Ej_eff * self.Ec()) - self.Ec()
 
 
     def __str__(self):
