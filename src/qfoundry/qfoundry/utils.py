@@ -124,7 +124,7 @@ def Ic_to_R(Ic, mat=sc_metal(1.14, T=20e-3)):
     """
     Convert Ic to R.
     """
-    from josephson import JosephsonJunctionAnalyzer
+    from .josephson import JosephsonJunctionAnalyzer
 
     return JosephsonJunctionAnalyzer().Ic_to_R(Ic, mat.sc_gap(), T=mat.T)
 
@@ -133,5 +133,5 @@ def R_to_Ic(R, mat=sc_metal(1.14, T=20e-3)):
     """
     Convert resistance to critical current.
     """
-    from josephson import JosephsonJunctionAnalyzer
+    from .josephson import JosephsonJunctionAnalyzer
     return JosephsonJunctionAnalyzer().R_to_Ic(R, mat.sc_gap(), T=mat.T)
