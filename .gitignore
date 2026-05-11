@@ -11,4 +11,3 @@ dist/
 site/
 /.ipynb_checkpoints/
 /src/qfoundry/qfoundry/__pycache__
-*.pyc
