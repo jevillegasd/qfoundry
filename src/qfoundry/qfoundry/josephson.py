@@ -130,6 +130,71 @@ class JosephsonJunctionAnalyzer:
         I3 = self.fowler_nordheim(V, A3, phi3, d3)
         return I1 + I2 + I3
 
+
+    def ambegaokar_baratoff_model(self, Delta, Param, T=300) -> float:
+        """
+        Ambegaokar-Baratoff model for Josephson junctions.
+        https://www.pearsonhighered.com/assets/samplechapter/0/1/3/2/0132627426.pdf page 162
+
+        Parameters
+        ----------
+        R_n : float
+            Normal state resistance (Ω)
+        Delta : float
+            Superconducting energy gap (eV)
+        T : float
+            Temperature (K)
+
+        Returns
+        -------
+        float
+            Critical current (A)
+        """
+
+        return (np.pi * Delta) / (2 * self.e * Param) * np.tanh(Delta / (2 * self.kB * T))
+
+    def R_to_Ic(self, R_n, Delta, T=300):
+        """
+        Convert normal state resistance to critical current using Ambegaokar-Baratoff model.
+
+        Parameters
+        ----------
+        R_n : float
+            Normal state resistance (Ω)
+        Delta : float
+            Superconducting energy gap (eV)
+        T : float
+            Temperature (K)
+
+        Returns
+        -------
+        float
+            Critical current (A)
+        """
+        return self.ambegaokar_baratoff_model(Delta, R_n, T=T)
+    
+
+    def Ic_to_R(self, Ic, Delta, T=300):
+        """
+        Convert critical current to normal state resistance using Ambegaokar-Baratoff model.
+
+        Parameters
+        ----------
+        Ic : float
+            Critical current (A)
+        Delta : float
+            Superconducting energy gap (eV)
+        T : float
+            Temperature (K)
+
+        Returns
+        -------
+        float
+            Normal state resistance (Ω)
+        """
+        return (np.pi * Delta) / (2 * self.e * Ic) * np.tanh(Delta / (2 * self.kB * T))
+
+
     def fit_iv_data(self, V_data, I_data, model="composite", initial_guess=None):
         """
         Fit I-V data to specified tunneling model.
