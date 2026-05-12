@@ -317,30 +317,6 @@ class transmon(qubit, circuit):
             )
  
         self._R_ = kwargs.get("R_loss", float('inf'))
-        
-    @classmethod
-    def from_Csigma(cls, C_sigma: float, **kwargs):
-        """Initialize transmon from total qubit capacitance :math:`C_\\Sigma`.
-
-        Derives the charging energy :math:`E_C = e^2 / (2 C_\\Sigma)` and
-        constructs the transmon.  All remaining keyword arguments are forwarded
-        to :meth:`__init__`.
-
-        Parameters
-        ----------
-        C_sigma : float
-            Total qubit capacitance :math:`C_\\Sigma` in Farads.
-        **kwargs
-            Additional keyword arguments passed to :meth:`__init__`
-            (e.g. ``E_j``, ``C_g``, ``res_ro``, ``mat``).
-
-        Returns
-        -------
-        transmon
-        """
-        ec = e_0**2 / (2 * C_sigma) / h_0 # https://arxiv.org/pdf/cond-mat/0703002 eq. 2.1*
-        ej = kwargs.get("E_j", 0.0)
-        return cls(E_j=ej, E_c=ec, **kwargs)
 
     @classmethod
     def from_ic(cls, i_c: float, R_jx: float = 0.0, **kwargs):
@@ -414,6 +390,7 @@ class transmon(qubit, circuit):
         kwargs["R_jx"] = R_jx
         kwargs["E_c"] = E_c
         kwargs["E_j"] = E_j
+        kwargs.pop("C_sigma", None)   # already consumed above; not a transmon.__init__ param
         return cls(**kwargs)
 
     @classmethod
@@ -463,6 +440,8 @@ class transmon(qubit, circuit):
 
         kwargs["R_j"] = Rj
         kwargs["R_jx"] = R_jx
+        kwargs.pop("E_c", None)       # passing E_c explicitly
+        kwargs.pop("C_sigma", None)   # already consumed above; not a transmon.__init__ param
         return cls(E_j=ej, E_c=ec, **kwargs)
 
     def alpha(self):
