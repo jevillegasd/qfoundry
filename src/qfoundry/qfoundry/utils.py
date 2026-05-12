@@ -11,7 +11,7 @@ from scipy.constants import Boltzmann as k_B
 from numpy import sqrt, pi, tanh, ix_
 from numpy.linalg import inv
 
-from qfoundry.resonator import circuit
+from qfoundry.circuit import circuit
 
 # Helper function for capacitance operations
 def parallel(Za, Zb):
