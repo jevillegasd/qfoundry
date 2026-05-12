@@ -51,8 +51,9 @@ DR_DICING_MARKERS_SPACING = DesignRule(
 
 
 class PDK:
-    def __init__(self):
+    def __init__(self, name: str = "default"):
         """Initialize the PDK with parameters."""
+        self.name = name
         self.epsilon_r = 11.6883144  # Intrinsic Silicon modified for model
 
         self.substrate_h = 550e-6  # [μm]
@@ -106,49 +107,39 @@ class PDK:
         )
 
     def __str__(self):
-        """String representation of the QW_PDK."""
-        return f"{type(self)}(epsilon_r={self.epsilon_r}, substrate_h={self.substrate_h}, substrate_rho={self.substrate_rho}, cpw_w={self.cpw_w}, cpw_g={self.cpw_g}, cpw_t={self.cpw_t}, alpha={self.alpha})"
+        """String representation of the PDK."""
+        return f"PDK(name={self.name!r}, epsilon_r={self.epsilon_r}, substrate_h={self.substrate_h}, cpw_w={self.cpw_w}, cpw_g={self.cpw_g}, cpw_t={self.cpw_t}, alpha={self.alpha})"
 
     def __repr__(self):
-        """String representation of the QW_PDK for debugging."""
-        return f"{type(self)}(epsilon_r={self.epsilon_r}, substrate_h={self.substrate_h}, substrate_rho={self.substrate_rho}, cpw_w={self.cpw_w}, cpw_g={self.cpw_g}, cpw_t={self.cpw_t}, alpha={self.alpha})"
+        """String representation of the PDK for debugging."""
+        return f"PDK(name={self.name!r}, epsilon_r={self.epsilon_r}, substrate_h={self.substrate_h}, cpw_w={self.cpw_w}, cpw_g={self.cpw_g}, cpw_t={self.cpw_t}, alpha={self.alpha})"
 
 
-QF_PDK = PDK() # PDK instance with defaults
+qf_pdk = PDK(name="QF_PDK")  # PDK instance with defaults
 
-class QW_PDK(PDK):
-    """QW_PDK class containing constants and parameters for the QW design kit."""
-
-    def __init__(self):
-        """Initialize the QW_PDK with parameters from the PDK class."""
-        super().__init__()
-
-        # QW_PDK specific parameters
-        self.substrate_h = 525e-6  # [μm]
-        self.epsilon_r = 12.07  # Intrinsic Silicon modified for model
-        self.substrate_rho = 1 / 1e4  # Substrate conductivity [1/Ω*cm]
-        self.Lk = 0.0  # Metal layer kinetic inductance [pH//□]
-        self.cpw_t = 0.2e-6  # [μm] Waveguide thickness
-        self.alpha = 0.0027e-3  # Superconductive Loss tangent (np/m) (measuredf from test resonators Qi at low power)
-
-        DR_MIN_FEATURE_SIZE = DesignRule(
-            name="DR_MIN_FEATURE_SIZE",
-            description="Minimum junction width thickness",
-            value=3e-6,
-        )
-        DR_DICING_MARKERS_SPACING = DesignRule(
-            name="DR_DICING_MARKERS_SPACING",
-            description="Spacing between dicing markers",
-            value=80e-6,
-        )
-        self.design_rules["DR_MIN_WAVEGUIDE_WIDTH"] = DR_MIN_FEATURE_SIZE
-        self.design_rules["DR_DICING_MARKERS_SPACING"] = DR_DICING_MARKERS_SPACING
-
-    def get_design_rule(self, name):
-        """Get a design rule by its name."""
-        return self.design_rules.get(name, None)
-    
+qw_pdk = PDK(name="QW_PDK")  # PDK instance with QW-specific parameters
+qw_pdk.substrate_h = 525e-6       # [μm]
+qw_pdk.epsilon_r = 12.07          # Intrinsic Silicon modified for model
+qw_pdk.substrate_rho = 1 / 1e4   # Substrate conductivity [1/Ω*cm]
+qw_pdk.Lk = 0.0                   # Metal layer kinetic inductance [pH//□]
+qw_pdk.cpw_t = 0.2e-6             # [μm] Waveguide thickness
+qw_pdk.alpha = 0.0027e-3          # Superconductive Loss tangent (np/m)
+qw_pdk.design_rules["DR_MIN_WAVEGUIDE_WIDTH"] = DesignRule(
+    name="DR_MIN_FEATURE_SIZE",
+    description="Minimum junction width thickness",
+    value=3e-6,
+)
+qw_pdk.design_rules["DR_DICING_MARKERS_SPACING"] = DesignRule(
+    name="DR_DICING_MARKERS_SPACING",
+    description="Spacing between dicing markers",
+    value=80e-6,
+)
 
 
 
-# Example design rules
+
+# Registry of all available PDK instances
+PDK_REGISTRY: dict[str, PDK] = {
+    qf_pdk.name: qf_pdk,
+    qw_pdk.name: qw_pdk,
+}
