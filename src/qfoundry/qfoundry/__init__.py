@@ -13,6 +13,7 @@ from importlib.metadata import version, PackageNotFoundError
 from .resonator import cpw, cpw_resonator
 from .qubits import transmon, tunable_transmon
 from .waveguides import cpw
+from .PDK import PDK, qf_pdk, qw_pdk, PDK_REGISTRY
 
 try:
     __version__ = version("qfoundry")
@@ -28,6 +29,10 @@ __all__ = [
     "capacitance",
     "josephson",
     "__version__",
+    "PDK",
+    "qf_pdk",
+    "qw_pdk",
+    "PDK_REGISTRY",
 ]
 
 
