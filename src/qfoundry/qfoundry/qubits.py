@@ -260,8 +260,9 @@ class transmon(qubit, circuit):
         self,
         E_j: float,  # Josephson energy
         E_c: float = None,
-        C_g: float = 21.7e-15,
-        C_d: float = 0.0e-15, # Capacitance to ground
+        C_g: float = None,   # Coupling capacitance (overrides g when provided)
+        g: float = None,     # Coupling strength between qubit and resonator (Hz)
+        C_d: float = 0.0e-15, # Capacitance to drive
         res_ro=cpw_resonator(
             cpw(11.7, 0.1, 12, 6, alpha=2.4e-2), frequency=7e9, length_f=4 # Readout Resonator
         ),  
@@ -286,10 +287,19 @@ class transmon(qubit, circuit):
         self._Rx_ = kwargs.get("R_jx", 0) or 0
         self._Rj_ = kwargs.get("R_j", 0) or 0
 
-        self.C_g = C_g
+        self._g_ = g
         self.C_d = C_d
         self.res_ro = res_ro
         self.kappa = kwargs.get("kappa", self.res_ro.kappa_ext()) # External coupling rate
+
+        # Derive C_g from g if not explicitly provided.
+        # Inverts: g = 2 * (C_g / C_sigma) * e_0 * V_zpf * n01 / h_0
+        if C_g is None and g is not None:
+            C_sigma = e_0**2 / (2 * self._ec_ * h_0)
+            V_zpf = self.res_ro.V_zpf()
+            n01 = (self._ej_ / (8.0 * self._ec_)) ** 0.25 / sqrt(2.0)
+            C_g = g * h_0 * C_sigma / (2 * e_0 * V_zpf * n01)
+        self.C_g = C_g
 
         # scqubits parameters
         self.ng = kwargs.get("ng", 0.3)     # Offset charge
@@ -527,6 +537,10 @@ class transmon(qubit, circuit):
         """
         Coupling sytrength between states j and j+1
         """
+        if self.C_g is None:
+            # Scale g01 by the ratio of charge matrix elements
+            return self.g() / 2 * self.nj(j) / self.n01()
+
         nj = self.nj(j)
 
         beta    = self.C_g / self.C() # Participation ratio
@@ -556,6 +570,9 @@ class transmon(qubit, circuit):
         g = C_g*(2*Ec/e) * V_zpf * n_matrix()[0,1] / hbar
 
         """
+
+        if self.C_g is None:
+            return self._g_
 
         C_sigma = self.C()
         f_r     = self.res_ro.f0()      # Resonator frequency
