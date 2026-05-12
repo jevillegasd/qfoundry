@@ -660,7 +660,7 @@ class cpw_resonator(circuit):
         Wallraff et al. (2004) Nature 431, 162 — Eq. (1);
         Krantz et al. (2019) Appl. Phys. Rev. 6, 021318 — Eq. (17).
         """
-        return np.sqrt(hbar * self.w0() / (2 * self.capacitance))
+        return np.sqrt(hbar * self.w0() / (2 * self.C()))
     
     def V_rms(self, photon_number=0):
         """
@@ -705,7 +705,7 @@ class cpw_resonator(circuit):
         I_rms_one_photon = self.w0() * self.C() * self.V_rms(photon_number=1)
         
         return (critical_current / (np.sqrt(2) * I_rms_one_photon))**2
-
+    
     def fwhm(self, Cin=None):
         if Cin == None:
             Cin = self.Ck

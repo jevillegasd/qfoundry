@@ -64,6 +64,91 @@ class qubit(ABC):
     - Krantz et al., Appl. Phys. Rev. 6, 021318 (2019), Eq. (17-18)
     """
 
+    # ------------------------------------------------------------------
+    # Abstract interface — subclasses must implement
+    # ------------------------------------------------------------------
+
+    @abstractmethod
+    def Ej(self) -> float:
+        r"""Josephson energy in Hz (i.e. :math:`E_J / h`).  Subclasses must override.
+
+        The Josephson energy sets the tunnelling energy of the junction:
+
+        .. math::
+
+            E_J/h = \frac{I_c}{4 \, \pi \, e} = \frac{I_c}{2\, e}
+
+        References
+        ----------
+        Koch et al. (2007) Eq. (2.2).
+        """
+
+
+    @abstractmethod
+    def Ec(self) -> float:
+        r"""Charging energy in Hz (i.e. :math:`E_C / h`).  Subclasses must override.
+
+        .. math::
+
+            E_C/h = \frac{e^2}{2\,h \, C_\Sigma}
+            
+
+        References
+        ----------
+        Koch et al. (2007) Eq. (2.3).
+        """
+
+    def El(self, phi=0.0) -> float:
+        r"""Inductive energy in Hz (i.e. :math:`E_L / h`).
+
+        For inductances different from the Josephson inductance, the inductive energy is
+
+        .. math::
+
+            E_L/h = \frac{h}{8 \, e^2 \, L}
+
+        where :math:`L` is the inductance.  Returns 0 by default (no geometric
+        inductance); subclasses may override.
+        """
+        return 0
+
+    # ------------------------------------------------------------------
+    # Derived circuit quantities — computed from Ej and Ec
+    # ------------------------------------------------------------------
+
+    def Ic(self) -> float:
+        r"""Critical current of the Josephson junction (A).
+
+        .. math::
+
+            :math:`I_c = E_J \cdot 4\pi e` (with :math:`E_J` in Hz units).
+
+        Returns
+        -------
+        float
+            Critical current in Amperes.
+
+        References
+        ----------
+        Koch et al. (2007) Eq. (2.2).
+        """
+        return self.Ej() * 4.0 * pi * e_0
+
+    def L_J(self, phi=0.0) -> float:
+        r"""Josephson inductance (H).
+
+        .. math::
+
+            L_J(\phi) = \frac{\hbar}{2\,e\,I_c\,\cos\phi}
+
+        Parameters
+        ----------
+        phi : float
+            Reduced flux bias in radians.  Default ``0.0``.
+        """
+        from numpy import cos
+        return hbar / (2 * e_0 * self.Ic()) / cos(phi)
+
     def I_zpf(self) -> float:
         r"""Zero-point current fluctuation (A).
 
@@ -72,7 +157,7 @@ class qubit(ABC):
             I_\mathrm{zpf} = \sqrt{\frac{\hbar\,\omega_{01}}{2\,L_J}}
 
         where :math:`L_J` is the Josephson inductance at the qubit operating
-        point (``self.L()``).
+        point.
 
         Returns
         -------
@@ -83,7 +168,7 @@ class qubit(ABC):
         ----------
         Koch et al. (2007) Eq. (2.7); Krantz et al. (2019) Eq. (18).
         """
-        return sqrt(hbar * self.omega01() / (2.0 * self.L()))
+        return sqrt(hbar * self.omega01() / (2.0 * self.L_J()))
 
     def V_zpf(self) -> float:
         r"""Zero-point voltage fluctuation (V).
@@ -101,7 +186,8 @@ class qubit(ABC):
         ----------
         Krantz et al. (2019) Eq. (17).
         """
-        return sqrt(hbar * self.omega01() / (2.0 * self.C()))
+        C = e_0**2 / (2 * self.Ec() * h_0)  # Total qubit capacitance from Ec
+        return sqrt(hbar * self.omega01() / (2.0 * C))
 
     def phi_zpf(self) -> float:
         r"""Zero-point phase (flux) fluctuation (dimensionless, reduced flux units).
@@ -149,59 +235,7 @@ class qubit(ABC):
         """
         return (self.Ej() / (8.0 * self.Ec())) ** 0.25 / sqrt(2.0)
 
-    # ------------------------------------------------------------------
-    # Abstract interface — subclasses must implement
-    # ------------------------------------------------------------------
-
-    @abstractmethod
-    def Ej(self) -> float:
-        r"""Josephson energy in Hz (i.e. :math:`E_J / h`).  Subclasses must override.
-
-        The Josephson energy sets the tunnelling energy of the junction:
-
-        .. math::
-
-            E_J = \frac{\hbar\, I_c}{2e} = \frac{h\, I_c}{4\pi\, e}
-
-        References
-        ----------
-        Koch et al. (2007) Eq. (2.2).
-        """
-
-    @abstractmethod
-    def Ec(self) -> float:
-        r"""Charging energy in Hz (i.e. :math:`E_C / h`).  Subclasses must override.
-
-        .. math::
-
-            E_C = \frac{e^2}{2\,C_\Sigma}
-
-        References
-        ----------
-        Koch et al. (2007) Eq. (2.3).
-        """
-
-    # ------------------------------------------------------------------
-    # Derived circuit quantities — computed from Ej and Ec
-    # ------------------------------------------------------------------
-
-    def Ic(self) -> float:
-        r"""Critical current of the Josephson junction (A).
-
-        .. math::
-
-            :math:`I_c = E_J \cdot 4\pi e` (with :math:`E_J` in Hz units).
-
-        Returns
-        -------
-        float
-            Critical current in Amperes.
-
-        References
-        ----------
-        Koch et al. (2007) Eq. (2.2).
-        """
-        return self.Ej() * 4.0 * pi * e_0
+    
     
 
 class transmon(qubit, circuit):
@@ -437,16 +471,25 @@ class transmon(qubit, circuit):
         return alpha
 
     def L(self, phi=0.0):
-        """
-        RLC circuit model Josephson inductance for the ground state
-        """
-        from numpy import cos
+        r"""Circuit inductance for the RLC model (H).
 
-        return h_0 / (2 * e_0 * self.Ic()) * 1 / (cos(phi))
+        For a plain transmon there is no geometric inductance; this delegates
+        to :meth:`L_J` so that circuit-level methods (``_f0_``, ``Q``, etc.)
+        see the Josephson inductance at the operating point.
+
+        Parameters
+        ----------
+        phi : float
+            Reduced flux bias passed through to :meth:`L_J`.  Default ``0.0``.
+        """
+        return self.L_J(phi)
 
     def C(self):
         """
         RLC circuit model capacitance for the ground state
+
+        .. math::
+            C_\Sigma = \frac{e^2}{2 E_C h}
         """
         return e_0**2 / (2 * self.Ec() * h_0)
 
@@ -468,7 +511,13 @@ class transmon(qubit, circuit):
     def nj(self,j):
         """
         Charge matrix element between states j+1 and j
-        |< j + 1 | nˆ | j >| ≈
+        .. math::
+            |< j + 1 | \hat{n} | j >| \approx \sqrt{\frac{1+j}{2}}\left(\frac{E_j}{8 E_c}\right)^{1/4}
+
+        Parameters
+        ----------
+        j: int
+            State index (0 for n01, 1 for n12, etc.)
         https://arxiv.org/pdf/cond-mat/0703002 eq 3.4
         """
         n_j_annalytical = sqrt((1+j)/2)*(self.Ej() / (8*self.Ec()))**(1/4)
@@ -480,8 +529,7 @@ class transmon(qubit, circuit):
         """
         nj = self.nj(j)
 
-        C_sigma = self.C()
-        beta    = self.C_g / (C_sigma) # Participation ratio
+        beta    = self.C_g / self.C() # Participation ratio
         V_zpf    = self.res_ro.V_zpf() # Resonator zero-point voltage fluctuation
 
         g_j = beta * V_zpf * nj * e_0/h_0
@@ -510,9 +558,9 @@ class transmon(qubit, circuit):
         """
 
         C_sigma = self.C()
-        f_r     = self.res_ro.f0() # Resonator frequency
-        C_r     = self.res_ro.C() # Resonator capacitance (used in fallback)
-        V_zpf    = self.res_ro.V_zpf() # Resonator zero-point voltage fluctuation
+        f_r     = self.res_ro.f0()      # Resonator frequency
+        C_r     = self.res_ro.C()       # Resonator capacitance (used in fallback)
+        V_zpf    = self.res_ro.V_zpf()  # Resonator zero-point voltage fluctuation
         C_g   = self.C_g
         try:
             assert self.n01() is not None
