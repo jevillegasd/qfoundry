@@ -46,6 +46,8 @@ import numpy as np
 from scipy.constants import h, hbar, e, pi
 from scipy.optimize import brentq
 
+from qfoundry.qubits import transmon
+from qfoundry.resonator import cpw_resonator
 import scqubits as scq
 
 # ---------------------------------------------------------------------------
@@ -75,7 +77,7 @@ def _I_zpf(qubit) -> float:
     return qubit.I_zpf()
 
 
-def _g_cap_qq(C_12: float, q0, q1) -> float:
+def _g_cap_qq(C_12: float, q0: transmon, q1: transmon) -> float:
     r"""Capacitive coupling strength between two transmon-like qubits (Hz).
 
     Derived from the Jaynes–Cummings interaction between two charge-basis
@@ -95,7 +97,7 @@ def _g_cap_qq(C_12: float, q0, q1) -> float:
     ----------
     C_12 : float
         Coupling capacitance between the two qubits in Farads.
-    q0, q1 :
+    q0, q1 : transmon
         Qubit objects exposing ``C()`` (F) and ``omega01()`` (rad s⁻¹).
 
     Returns
@@ -109,14 +111,13 @@ def _g_cap_qq(C_12: float, q0, q1) -> float:
     """
     C0    = q0.C()         # F
     C1    = q1.C()         # F
-    w0    = q0.omega01()   # rad/s
-    w1    = q1.omega01()   # rad/s
-    # g in rad/s, divide by 2π to get Hz
-    g_rads = 0.5 * np.sqrt(w0 * w1) * C_12 / np.sqrt(C0 * C1)
-    return g_rads / (2.0 * pi)
+    f0    = q0.f01()   # rad/s
+    f1    = q1.f01()   # rad/s
+    g_Hz = 0.5 * np.sqrt(f0 * f1) * C_12 / np.sqrt(C0 * C1)
+    return g_Hz
 
 
-def _g_ind_qq(M: float, q0, q1) -> float:
+def _g_ind_qq(M: float, q0: transmon, q1: transmon) -> float:
     r"""Inductive (mutual-inductance) coupling strength between two qubits (Hz).
 
     .. math::
@@ -146,7 +147,7 @@ def _g_ind_qq(M: float, q0, q1) -> float:
     return M * I0 * I1 / h
 
 
-def _g_cap_qr(C_qr: float, qubit, resonator) -> float:
+def _g_cap_qr(C_qr: float, qubit: transmon, resonator: cpw_resonator) -> float:
     r"""Capacitive qubit–resonator coupling strength (Hz).
 
     .. math::
