@@ -1,4 +1,7 @@
 # Constants and parameters for the PDK
+from math import pi
+from scipy.constants import elementary_charge as _e0
+from scipy.constants import Boltzmann as _kB
 from qfoundry.utils import sc_metal
 from qfoundry.waveguides import cpw
 
@@ -69,13 +72,14 @@ class PDK:
         self.jj_rhort = (
             0.535244811537077e-05  # Josephson Junction R.T. resistivity Ohm*m^2
         )
-        self.jj_R0 = 4.119856e3  # R.T. Contact probing correction
+        self.jj_R0 = 4.119856e3  # R.T. Contact probing correction (Rx) [Ω]
         self.jj_rhox = (
             0  # Josephson Junction resistivity correction (to match measured qubit Ej)
         )
         self.jj_gammax = (
             4.513e-07  # Josephson Junction Capacitance per unit area correction
         )
+        self.RI_factor: float | None = None  # Measured Ic·(Rn+Rx) AB product [V]
 
         # Resonator model corrections
         self.C_mx = 0  # Waveguide capacitance per unit length correction
@@ -92,7 +96,39 @@ class PDK:
         self.Tc = 1.14  # Critical temperature of the superconductor [K]
         self.mat_prop = sc_metal(self.Tc, self.cpw_t)
 
+    @property
+    def k_Delta(self) -> float | None:
+        """Modified Ambegaokar-Baratoff correction factor.
+
+        Defined by:  Ic·(Rn + Rx) = k_Δ · πΔ_BCS / (2e)
+        where Δ_BCS = 1.764·kB·Tc  (BCS gap at T→0).
+
+        Returns None if RI_factor or Tc is not set.
+        """
+        if self.RI_factor is None or self.RI_factor <= 0:
+            return None
+        if self.Tc is None or self.Tc <= 0:
+            return None
+        delta_bcs = 1.764 * _kB * self.Tc  # J
+        return self.RI_factor * 2.0 * _e0 / (pi * delta_bcs)
+
+    def Rn_from_Ej(self, Ej_Hz: float) -> float | None:
+        """Estimate junction normal resistance from design Josephson energy.
+
+        Uses the AB relation:  Rn_calc = RI_factor / Ic_AB - Rx
+        where  Ic_AB = Ej · 4πe/h  and  Rx = jj_R0.
+
+        Returns None if RI_factor is not set or result would be non-positive.
+        """
+        from scipy.constants import Planck as _h0
+        if self.RI_factor is None or self.RI_factor <= 0 or Ej_Hz <= 0:
+            return None
+        Ic_AB = Ej_Hz * 4.0 * pi * _e0 / _h0
+        Rn = self.RI_factor / Ic_AB - self.jj_R0
+        return Rn if Rn > 0 else None
+
     def cpw(self):
+        
         """Return a coplanar waveguide object using the PDK parameters."""
         return cpw(
             epsilon_r=self.epsilon_r,
@@ -103,7 +139,6 @@ class PDK:
             alpha= self.alpha,
             tc = self.Tc,
             T = 0.02,  # Operating temperature [K]
-            
         )
 
     def __str__(self):
