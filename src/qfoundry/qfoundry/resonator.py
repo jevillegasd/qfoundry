@@ -424,13 +424,16 @@ class cpw_resonator(circuit):
     def kappa(self):
         return self.f0() / self.Q()
 
-    def kappa_ext(self, Cin=None, Z_L: float = 50.0):
+    def kappa_ext(self, Cin=None, Z_L: float = None):
         """
         External coupling rate (FWHM) due to coupling capacitance.
         κ_ext = (ω₀*C_k)²*Z_L / C
         """
+        if Z_L is None:
+            Z_L = self.wg.Z_0k or 50.0
         if Cin is None:
             Cin = self.Ck
+            
         kappa_ = (self.w0()*Cin)**2*Z_L / (self.C())
         return kappa_ / (2 * np.pi)
 

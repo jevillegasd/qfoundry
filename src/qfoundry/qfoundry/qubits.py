@@ -287,11 +287,11 @@ class transmon(qubit, circuit):
         self._Rx_ = kwargs.get("R_jx", 0) or 0
         self._Rj_ = kwargs.get("R_j", 0) or 0
 
-        self._g_ = g
         self.C_d = C_d
         self.res_ro = res_ro
         self.kappa = kwargs.get("kappa", self.res_ro.kappa_ext()) # External coupling rate
 
+        self._g_ = g
         # Derive C_g from g if not explicitly provided.
         # Inverts: g = 2 * (C_g / C_sigma) * e_0 * V_zpf * n01 / h_0
         if C_g is None and g is not None:
