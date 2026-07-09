@@ -246,7 +246,7 @@ class transmon(qubit, circuit):
         C_g:    float  =21.7e-15,
         C_k:    float  =36.7e-15,
         C_d:   float =0.0e-15,
-        res_ro = cpw_resonator(cpw(11.7,0.1,12,6, alpha=2.4e-2),frequency = 7e9, length_f = 2),    #Readout Resonator
+        res_ro = cpw_resonator(cpw(11.7,550 ,15,7.5, 0.2, alpha=2.4e-2),frequency = 7e9, length_f = 2),    #Readout Resonator
         R_jx:   float = 0.0,       # Resistance correction factor
         mat =   sc_metal(1.14),
         T =     20.e-3,
@@ -264,7 +264,7 @@ class transmon(qubit, circuit):
         g: float = None,     # Coupling strength between qubit and resonator (Hz)
         C_d: float = 0.0e-15, # Capacitance to drive
         res_ro=cpw_resonator(
-            cpw(11.7, 0.1, 12, 6, alpha=2.4e-2), frequency=7e9, length_f=4 # Readout Resonator
+            cpw(11.7, 550, 15, 7.5, 0.2, alpha=2.4e-2), frequency=7e9, length_f=4 # Readout Resonator
         ),  
         mat=sc_metal(1.14, 20e-3),
         inst_model = True,  # Whether to instantiate the scquibits model

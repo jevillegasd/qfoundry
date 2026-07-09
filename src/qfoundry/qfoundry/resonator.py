@@ -159,7 +159,7 @@ class cpw_resonator(circuit):
             Additional parameters passed to __init__
         """
         
-        wg = kwargs.get("wg", cpw(11.45, 550, 15, 7.5, alpha=2.4e-2))
+        wg = kwargs.get("wg", cpw(11.45, 550, 15, 7.5, 0.2))
         length_f = kwargs.get("length_f", 2) 
         n = kwargs.get("n", 1)
         Ck = kwargs.get("Ck", 0.0) # Coupling capacitance to feedline in F
@@ -238,7 +238,7 @@ class cpw_resonator(circuit):
         """
         from scipy.optimize import fsolve
         
-        wg = kwargs.get("wg", cpw(11.45, 550, 15, 7.5, alpha=2.4e-2))
+        wg = kwargs.get("wg", cpw(11.45, 550, 15, 7.5, 0.2))
         length_f = kwargs.get("length_f", 2) 
         n = kwargs.get("n", 1)
         Ck = kwargs.get("Ck", 0.0)
@@ -378,7 +378,7 @@ class cpw_resonator(circuit):
         -------
         cpw_resonator
         """
-        kwargs.setdefault("wg", cpw(11.45, 550, 15, 7.5, alpha=2.4e-2))
+        kwargs.setdefault("wg", cpw(11.45, 550, 15, 7.5, 0.2))
         frequency = np.sqrt(8.0 * E_c * E_l)
         return cls(frequency=frequency, **kwargs)
     
