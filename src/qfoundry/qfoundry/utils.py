@@ -71,21 +71,28 @@ def E_to_C(E):
 def L_to_E(L):
     r"""Inductive energy (Hz) implied by an inductance L (H).
 
-    Matches the convention used in :meth:`qfoundry.qubits.qubit.El`:
+    Using the flux quantum :math:`\Phi_0 = h/(2e)`, the inductive energy is
+    :math:`E_L = (\Phi_0/2\pi)^2/L` (the reduced flux :math:`\Phi_0/2\pi`
+    enters, not :math:`\Phi_0` directly). This is the definition
+    self-consistent with :math:`f_0 = \sqrt{8 E_C E_L}` (see
+    :meth:`qfoundry.resonator.cpw_resonator.from_energies`) for a plain LC
+    oscillator with :math:`f_0 = 1/(2\pi\sqrt{LC})`:
 
     .. math::
 
-        E_L/h = \frac{h}{8\,e^2\,L}
+        E_L/h = \frac{\Phi_0^2}{4\pi^2 L h} = \frac{h}{16\,\pi^2\,e^2\,L}
     """
-    return h / (8 * e_0**2 * L)
+    phi_0 = h / (2 * e_0)  # flux quantum
+    return phi_0**2 / (4 * pi**2 * L) / h  # in Hz
 
 
 def E_to_L(E):
     """
     Convert inductive energy (Hz) to inductance (H).
-    E_L/h = h/(8*e^2*L) => L = h/(8*e^2*E_L)
+    E_L/h = Phi_0^2/(4*pi^2*L*h) => L = Phi_0^2/(4*pi^2*E_L*h)
     """
-    return h / (8 * e_0**2 * E)
+    phi_0 = h / (2 * e_0)  # flux quantum
+    return phi_0**2 / (4 * pi**2 * E) / h  # in H
 
 
 def Cq_to_E(Cq, C1, C2):
