@@ -381,7 +381,34 @@ class cpw_resonator(circuit):
         kwargs.setdefault("wg", cpw(11.45, 550, 15, 7.5, 0.2))
         frequency = np.sqrt(8.0 * E_c * E_l)
         return cls(frequency=frequency, **kwargs)
-    
+
+    @classmethod
+    def from_frequency(cls, frequency: float, **kwargs):
+        """
+        Create a resonator directly from a target resonance frequency.
+
+        Unlike :meth:`from_energies`, this doesn't require E_C/E_L to be
+        specified — the physical length (and hence L, C, and by extension
+        E_C, E_L) is solved for from the default/given CPW geometry alone,
+        matching the plain constructor's ``frequency`` parameter but with
+        the same default-waveguide convenience as ``from_energies``.
+
+        Parameters
+        ----------
+        frequency : float
+            Target resonance frequency in Hz.
+        **kwargs
+            Additional parameters passed to __init__ (e.g. wg, length_f, n,
+            Cg, Ck, R_L). If ``wg`` is not given, a default CPW waveguide is
+            used.
+
+        Returns
+        -------
+        cpw_resonator
+        """
+        kwargs.setdefault("wg", cpw(11.45, 550, 15, 7.5, 0.2))
+        return cls(frequency=frequency, **kwargs)
+
     @classmethod
     def design_for_coupling(cls, frequency: float, Q_ext_target: float, **kwargs):
         """

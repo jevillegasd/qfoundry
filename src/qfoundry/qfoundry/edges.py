@@ -702,6 +702,59 @@ class bus_resonator_coupler(edge):
         return obj
 
     @classmethod
+    def from_frequency(
+        cls,
+        q0,
+        q1,
+        frequency: float,
+        g0: float,
+        g1: float,
+        **resonator_kwargs,
+    ) -> "bus_resonator_coupler":
+        r"""Build a bus_resonator_coupler from a target frequency and g's.
+
+        Alternate constructor for when the bus resonator is specified purely
+        by its target resonance frequency rather than by :math:`E_C`/:math:`E_L`
+        directly — useful when the physical CPW geometry (and hence the
+        implied :math:`E_C`, :math:`E_L`) is not yet known analytically. A
+        resonator is instantiated via :meth:`cpw_resonator.from_frequency`,
+        which solves for the physical length (and hence :math:`E_C`,
+        :math:`E_L`) from the default/given CPW geometry alone. The implied
+        energies are recoverable from the resulting resonator via
+        :func:`~qfoundry.utils.Cs_to_E` (``resonator.C()``) and
+        :func:`~qfoundry.utils.L_to_E` (``resonator.L()``).
+
+        Parameters
+        ----------
+        q0, q1 : transmon-like
+            Control / target qubits.
+        frequency : float
+            Target bus resonator frequency (Hz).
+        g0, g1 : float
+            Qubit–resonator coupling strengths :math:`g_{0r}`,
+            :math:`g_{1r}` (Hz).
+        **resonator_kwargs
+            Additional keyword arguments forwarded to
+            :meth:`cpw_resonator.from_frequency` (e.g. ``wg``, ``n``,
+            ``truncated_dim``). ``length_f`` defaults to 2 (half-wave; see
+            :meth:`from_energies`).
+
+        Returns
+        -------
+        bus_resonator_coupler
+        """
+        resonator_kwargs.setdefault("length_f", 2)
+        resonator = cpw_resonator.from_frequency(frequency, **resonator_kwargs)
+        obj = cls.__new__(cls)
+        edge.__init__(obj, q0, q1)
+        obj.resonator = resonator
+        obj.C_0r = _C_cap_qr(g0, q0, resonator)
+        obj.C_1r = _C_cap_qr(g1, q1, resonator)
+        obj._g_0r = g0
+        obj._g_1r = g1
+        return obj
+
+    @classmethod
     def from_maxwell(
         cls,
         q0,
