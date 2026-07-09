@@ -595,7 +595,7 @@ class bus_resonator_coupler(edge):
     References
     ----------
     [Majer2007] Nature 449, 443 (2007);
-    [Blais2021] Eq. (6.2).
+    [Blais2021] Rev. Mod. Phys. 93, 025005, Eq. (136).
     """
 
     def __init__(self, q0, q1, resonator, C_0r: float, C_1r: float):
@@ -603,15 +603,151 @@ class bus_resonator_coupler(edge):
         self.resonator = resonator
         self.C_0r = C_0r
         self.C_1r = C_1r
+        self._g_0r = None
+        self._g_1r = None
+
+    @classmethod
+    def from_energies(
+        cls,
+        q0,
+        q1,
+        E_c: float,
+        E_l: float,
+        g0: float,
+        g1: float,
+        **resonator_kwargs,
+    ) -> "bus_resonator_coupler":
+        r"""Build a bus_resonator_coupler from resonator energies and g's.
+
+        Alternate constructor for use when the bus resonator is specified by
+        its characteristic energies rather than a pre-built
+        :class:`~qfoundry.resonator.cpw_resonator` instance and coupling
+        capacitances.  A resonator is instantiated via
+        :meth:`cpw_resonator.from_energies`, whose frequency is
+
+        .. math::
+
+            f_r = \sqrt{8\,E_C\,E_L}
+
+        and the qubit–resonator coupling strengths :math:`g_{0r}`,
+        :math:`g_{1r}` are taken directly (Hz), bypassing the
+        capacitance-based derivation used by the default constructor.
+
+        Parameters
+        ----------
+        q0, q1 : transmon-like
+            Control / target qubits.
+        E_c : float
+            Resonator charging energy :math:`E_C/h` (Hz).
+        E_l : float
+            Resonator inductive energy :math:`E_L/h` (Hz).
+        g0, g1 : float
+            Qubit–resonator coupling strengths :math:`g_{0r}`,
+            :math:`g_{1r}` (Hz).
+        **resonator_kwargs
+            Additional keyword arguments forwarded to
+            :meth:`cpw_resonator.from_energies` (e.g. ``wg``, ``length_f``,
+            ``n``, ``truncated_dim``).
+
+        Returns
+        -------
+        bus_resonator_coupler
+        """
+        resonator = cpw_resonator.from_energies(E_c, E_l, **resonator_kwargs)
+        obj = cls.__new__(cls)
+        edge.__init__(obj, q0, q1)
+        obj.resonator = resonator
+        obj.C_0r = None
+        obj.C_1r = None
+        obj._g_0r = g0
+        obj._g_1r = g1
+        return obj
+
+    @classmethod
+    def from_maxwell(
+        cls,
+        q0,
+        q1,
+        nodes: list,
+        C_matrix_F,
+        q0_node: str,
+        resonator_node: str,
+        q1_node: str,
+        E_l: float,
+        **resonator_kwargs,
+    ) -> "bus_resonator_coupler":
+        r"""Build a bus_resonator_coupler from a Maxwell capacitance matrix.
+
+        Alternate constructor for use when the qubit-resonator coupling
+        capacitances and the resonator's own charging energy are not known
+        analytically but have been extracted from a FEM (e.g. Ansys HFSS/Q3D)
+        simulation as a full mutual-capacitance matrix over all islands in the
+        coupling region.
+
+        The matrix is reduced via Schur complement (adiabatic elimination of
+        every node other than the two qubit islands and the resonator body),
+        yielding a 3x3 effective capacitance matrix.  The off-diagonal terms
+        give :math:`C_{0r}`, :math:`C_{1r}`; the resonator's own diagonal term
+        gives its self-capacitance, from which :math:`E_C` follows via
+        :func:`~qfoundry.utils.Cs_to_E`.
+
+        :math:`E_L` is not derivable from a capacitance matrix alone and must
+        be supplied directly (e.g. from geometry or a separate FEM inductance
+        extraction).
+
+        Parameters
+        ----------
+        q0, q1 : transmon-like
+            Control / target qubits.
+        nodes : list of str
+            Ordered node names matching the rows/columns of ``C_matrix_F``.
+        C_matrix_F : array_like
+            Full NxN mutual-capacitance matrix in Farads, Maxwell convention
+            (diagonal = self-cap to ground + sum of mutual caps; off-diagonal
+            negative).
+        q0_node, resonator_node, q1_node : str
+            Names (within ``nodes``) of the q0 island, the resonator body, and
+            the q1 island respectively.
+        E_l : float
+            Resonator inductive energy :math:`E_L/h` (Hz).
+        **resonator_kwargs
+            Additional keyword arguments forwarded to
+            :meth:`cpw_resonator.from_energies`.
+
+        Returns
+        -------
+        bus_resonator_coupler
+        """
+        from qfoundry.utils import Schur_complement, Cs_to_E
+
+        i0, ir, i1 = nodes.index(q0_node), nodes.index(resonator_node), nodes.index(q1_node)
+        M = np.asarray(C_matrix_F, dtype=float)
+        env = [i for i in range(len(nodes)) if i not in (i0, ir, i1)]
+        S = Schur_complement(M, [i0, ir, i1], env) if env else M[np.ix_([i0, ir, i1], [i0, ir, i1])]
+
+        C_0r = abs(float(S[0, 1]))
+        C_1r = abs(float(S[2, 1]))
+        E_c = Cs_to_E(float(S[1, 1]))
+
+        resonator = cpw_resonator.from_energies(E_c, E_l, **resonator_kwargs)
+        return cls(q0, q1, resonator, C_0r, C_1r)
 
     def _g_qr(self, qubit, C_qr: float) -> float:
         """Individual qubit–resonator coupling (Hz).
 
         References
         ----------
-        [Blais2021] Eq. (4.9); [Wallraff2004] Nature 431, 162.
+        [Blais2021] Rev. Mod. Phys. 93, 025005); [Wallraff2004] Nature 431, 162.
         """
         return _g_cap_qr(C_qr, qubit, self.resonator)
+
+    def _g0r(self) -> float:
+        """Qubit0–resonator coupling (Hz): direct value if set, else derived from C_0r."""
+        return self._g_0r if self._g_0r is not None else self._g_qr(self.q0, self.C_0r)
+
+    def _g1r(self) -> float:
+        """Qubit1–resonator coupling (Hz): direct value if set, else derived from C_1r."""
+        return self._g_1r if self._g_1r is not None else self._g_qr(self.q1, self.C_1r)
 
     def g(self) -> float:
         r"""Effective bus-mediated qubit–qubit coupling (Hz).
@@ -636,8 +772,8 @@ class bus_resonator_coupler(edge):
         ----------
         [Majer2007] Nature 449, 443; [Blais2021] Eq. (6.2).
         """
-        g_0r = self._g_qr(self.q0, self.C_0r)
-        g_1r = self._g_qr(self.q1, self.C_1r)
+        g_0r = self._g0r()
+        g_1r = self._g1r()
         f_r  = self.resonator.f0()
         Delta_0r = self.q0.f01() - f_r   # Hz
         Delta_1r = self.q1.f01() - f_r   # Hz
@@ -664,8 +800,8 @@ class bus_resonator_coupler(edge):
         hs = scq.HilbertSpace(
             [self.q0.qmodel, self.resonator.qmodel, self.q1.qmodel]
         )
-        g_0r = self._g_qr(self.q0, self.C_0r)
-        g_1r = self._g_qr(self.q1, self.C_1r)
+        g_0r = self._g0r()
+        g_1r = self._g1r()
 
         hs.add_interaction(
             g_strength=g_0r * 1e-9,

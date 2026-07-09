@@ -159,7 +159,7 @@ class cpw_resonator(circuit):
             Additional parameters passed to __init__
         """
         
-        wg = kwargs.get("wg", cpw(11.7, 0.1, 15, 7.5, alpha=2.4e-2))
+        wg = kwargs.get("wg", cpw(11.45, 550, 15, 7.5, alpha=2.4e-2))
         length_f = kwargs.get("length_f", 2) 
         n = kwargs.get("n", 1)
         Ck = kwargs.get("Ck", 0.0) # Coupling capacitance to feedline in F
@@ -238,7 +238,7 @@ class cpw_resonator(circuit):
         """
         from scipy.optimize import fsolve
         
-        wg = kwargs.get("wg", cpw(11.7, 0.1, 12, 6, alpha=2.4e-2))
+        wg = kwargs.get("wg", cpw(11.45, 550, 15, 7.5, alpha=2.4e-2))
         length_f = kwargs.get("length_f", 2) 
         n = kwargs.get("n", 1)
         Ck = kwargs.get("Ck", 0.0)
@@ -330,11 +330,11 @@ class cpw_resonator(circuit):
         kwargs['length_f'] = 4
         return cls(frequency=frequency, **kwargs)
     
-    @classmethod  
+    @classmethod
     def half_wave(cls, frequency: float, **kwargs):
         """
         Create a half-wavelength resonator at the specified frequency.
-        
+
         Parameters
         ----------
         frequency : float
@@ -343,6 +343,43 @@ class cpw_resonator(circuit):
             Additional parameters passed to __init__
         """
         kwargs['length_f'] = 2
+        return cls(frequency=frequency, **kwargs)
+
+    @classmethod
+    def from_energies(cls, E_c: float, E_l: float, **kwargs):
+        r"""
+        Create a resonator from its characteristic energies E_C and E_L.
+
+        The target resonance frequency is computed from the harmonic
+        LC-oscillator relation
+
+        .. math::
+
+            f_0 = \sqrt{8\,E_C\,E_L}
+
+        matching the transmon/fluxonium plasma-frequency convention used
+        elsewhere in qfoundry, with :math:`E_C`, :math:`E_L` given in Hz
+        (i.e. already divided by h). The physical length (and hence L, C)
+        is then solved for as usual so that the resulting resonator
+        resonates at that frequency.
+
+        Parameters
+        ----------
+        E_c : float
+            Resonator charging energy :math:`E_C/h` in Hz.
+        E_l : float
+            Resonator inductive energy :math:`E_L/h` in Hz.
+        **kwargs
+            Additional parameters passed to __init__ (e.g. wg, length_f, n,
+            Cg, Ck, R_L). If ``wg`` is not given, a default CPW waveguide is
+            used.
+
+        Returns
+        -------
+        cpw_resonator
+        """
+        kwargs.setdefault("wg", cpw(11.45, 550, 15, 7.5, alpha=2.4e-2))
+        frequency = np.sqrt(8.0 * E_c * E_l)
         return cls(frequency=frequency, **kwargs)
     
     @classmethod

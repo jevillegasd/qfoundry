@@ -66,7 +66,7 @@ class cpw:
         height: float,  # [length], substrate's height in m
         width: float,  # [length], microstrip width in m
         spacing: float,  # [length], Space from ground plane in m
-        thickness: float = 100e-9,
+        thickness: float = 200e-9,
         rho: float = 2.06e-9,  # normal state resisitivity of the thin film
         tc: float = 1.23,  # critical temperature in K
         alpha: float = 2.4e-2,  # attenuation cofficient m^-1
@@ -76,7 +76,7 @@ class cpw:
     ):  # temperature in K
 
         # if dimensional units are large, assume they are in um
-        if width > 1e-3 or height > 1e-3 or spacing > 1e-3:
+        if width > 1e-3 or thickness > 1e-3 or spacing > 1e-3:
             width = width * 1e-6
             height = height * 1e-6
             spacing = spacing * 1e-6
