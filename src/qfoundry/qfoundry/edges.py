@@ -181,6 +181,40 @@ def _g_cap_qr(C_qr: float, qubit: transmon, resonator: cpw_resonator) -> float:
     return g_rads / (2.0 * pi)
 
 
+def _C_cap_qr(g_Hz: float, qubit: transmon, resonator: cpw_resonator) -> float:
+    r"""Coupling capacitance implied by a target qubit–resonator coupling (F).
+
+    Inverse of :func:`_g_cap_qr`:
+
+    .. math::
+
+        C_{qr} = 2\,g_{qr}\,\frac{\sqrt{C_{\Sigma,q}\, C_r}}{\sqrt{f_q\, f_r}}
+
+    Parameters
+    ----------
+    g_Hz : float
+        Target qubit–resonator coupling strength (Hz).
+    qubit :
+        Qubit object exposing ``C()`` and ``f01()``.
+    resonator :
+        Resonator object exposing ``C()`` and ``f0()`` (Hz).
+
+    Returns
+    -------
+    float
+        Coupling capacitance in Farads.
+
+    References
+    ----------
+    [Blais2021] Eq. (4.9); [Wallraff2004] Nature 431, 162.
+    """
+    C_q = qubit.C()
+    C_r = resonator.C()
+    f_q = qubit.f01()
+    f_r = resonator.f0()
+    return 2.0 * g_Hz * np.sqrt(C_q * C_r) / np.sqrt(f_q * f_r)
+
+
 # ---------------------------------------------------------------------------
 # Base class
 # ---------------------------------------------------------------------------
@@ -646,19 +680,23 @@ class bus_resonator_coupler(edge):
             :math:`g_{1r}` (Hz).
         **resonator_kwargs
             Additional keyword arguments forwarded to
-            :meth:`cpw_resonator.from_energies` (e.g. ``wg``, ``length_f``,
-            ``n``, ``truncated_dim``).
+            :meth:`cpw_resonator.from_energies` (e.g. ``wg``, ``n``,
+            ``truncated_dim``). ``length_f`` defaults to 2 (half-wave) —
+            a qubit-qubit coupling bus has both ends open (capacitively
+            coupled to a qubit), unlike a quarter-wave readout resonator
+            which requires a physically shorted end.
 
         Returns
         -------
         bus_resonator_coupler
         """
+        resonator_kwargs.setdefault("length_f", 2)
         resonator = cpw_resonator.from_energies(E_c, E_l, **resonator_kwargs)
         obj = cls.__new__(cls)
         edge.__init__(obj, q0, q1)
         obj.resonator = resonator
-        obj.C_0r = None
-        obj.C_1r = None
+        obj.C_0r = _C_cap_qr(g0, q0, resonator)
+        obj.C_1r = _C_cap_qr(g1, q1, resonator)
         obj._g_0r = g0
         obj._g_1r = g1
         return obj
@@ -712,7 +750,10 @@ class bus_resonator_coupler(edge):
             Resonator inductive energy :math:`E_L/h` (Hz).
         **resonator_kwargs
             Additional keyword arguments forwarded to
-            :meth:`cpw_resonator.from_energies`.
+            :meth:`cpw_resonator.from_energies`. ``length_f`` defaults to 2
+            (half-wave) — a qubit-qubit coupling bus has both ends open
+            (capacitively coupled to a qubit), unlike a quarter-wave readout
+            resonator which requires a physically shorted end.
 
         Returns
         -------
@@ -729,6 +770,7 @@ class bus_resonator_coupler(edge):
         C_1r = abs(float(S[2, 1]))
         E_c = Cs_to_E(float(S[1, 1]))
 
+        resonator_kwargs.setdefault("length_f", 2)
         resonator = cpw_resonator.from_energies(E_c, E_l, **resonator_kwargs)
         return cls(q0, q1, resonator, C_0r, C_1r)
 
