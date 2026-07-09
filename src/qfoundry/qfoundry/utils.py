@@ -68,6 +68,26 @@ def E_to_C(E):
     return e_0**2 / (2 * E) / h
 
 
+def L_to_E(L):
+    r"""Inductive energy (Hz) implied by an inductance L (H).
+
+    Matches the convention used in :meth:`qfoundry.qubits.qubit.El`:
+
+    .. math::
+
+        E_L/h = \frac{h}{8\,e^2\,L}
+    """
+    return h / (8 * e_0**2 * L)
+
+
+def E_to_L(E):
+    """
+    Convert inductive energy (Hz) to inductance (H).
+    E_L/h = h/(8*e^2*L) => L = h/(8*e^2*E_L)
+    """
+    return h / (8 * e_0**2 * E)
+
+
 def Cq_to_E(Cq, C1, C2):
     """
     Using Vi = (2e/Ci)ni and the Hamiltonian H_int = Hint = CgV1V2
