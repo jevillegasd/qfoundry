@@ -878,6 +878,9 @@ class bus_resonator_coupler(edge):
 
         return 0.5 * g_0r * g_1r * (1.0 / Delta_0r + 1.0 / Delta_1r)
 
+    def J(self) -> float:
+        return self.g()  # alias for consistency with Blais2021 notation
+
     def hilbert_space(self) -> scq.HilbertSpace:
         """Build 3-body HilbertSpace [q0, resonator, q1].
 
