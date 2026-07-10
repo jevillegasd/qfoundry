@@ -852,6 +852,24 @@ class tunable_transmon(transmon):
             # Koch et al. (2007) Eq. (3.1): f01 ≈ sqrt(8*Ej_eff*Ec) - Ec
             return sqrt(8 * Ej_eff * self.Ec()) - self.Ec()
 
+    def alpha(self, flux=None):
+        """
+        Anharmonicity at a given flux bias (reduced flux, Phi/Phi_0).
+
+        Mirrors f01(flux=...): with no argument, behaves exactly like the
+        base transmon.alpha() (evaluated at self.qmodel's current flux).
+        With an explicit flux, temporarily biases self.qmodel to compute the
+        anharmonicity there, then restores the original bias.
+        """
+        if flux is None:
+            return super().alpha()
+        saved_flux = self.qmodel.flux
+        self.qmodel.flux = flux
+        try:
+            return super().alpha()
+        finally:
+            self.qmodel.flux = saved_flux
+
 
     def __str__(self):
         return super().__str__() + "\nFlux = \t%3.2f" % self.flux

@@ -915,6 +915,112 @@ class bus_resonator_coupler(edge):
         )
         return hs
 
+    def dressed_eigensys(self, flux=None, tunable_qubit=None, evals_count=10):
+        r"""Diagonalize the full 3-body qubit–resonator–qubit Hamiltonian.
+
+        Near a qubit–qubit resonance (e.g. the |11⟩–|02⟩ crossing used for a
+        CZ gate) the perturbative :meth:`g`/:meth:`zeta`/:meth:`nu`/:meth:`mu`
+        formulas are singular or inaccurate — their denominators are exactly
+        the detuning being driven to zero. This method instead builds and
+        diagonalizes the true composite Hamiltonian via :meth:`hilbert_space`,
+        giving the dressed eigenspectrum directly.
+
+        Parameters
+        ----------
+        flux : float, optional
+            Reduced flux bias to apply to ``tunable_qubit`` before
+            diagonalizing (e.g. the CZ operating point). Requires
+            ``tunable_qubit`` to be given.
+        tunable_qubit :
+            Whichever of ``q0``/``q1`` is a flux-tunable transmon; its
+            ``qmodel.flux`` is set to ``flux`` before building the Hilbert
+            space. Ignored if ``flux`` is ``None``.
+        evals_count : int, optional
+            Number of dressed eigenstates to compute. Default 10.
+
+        Returns
+        -------
+        evals : ndarray
+            Dressed eigenvalues (GHz), ascending.
+        evecs : ndarray
+            Dressed eigenvectors as columns, shape ``(dim, evals_count)``, in
+            the tensor-product basis ``[q0, resonator, q1]`` (each factor in
+            its own truncated eigenbasis — see :meth:`avoided_crossing_gap`).
+        hs : scq.HilbertSpace
+            The diagonalized Hilbert space (e.g. for ``hs.subsystem_list``).
+        """
+        if flux is not None:
+            if tunable_qubit is None:
+                raise ValueError("tunable_qubit must be given when flux is specified.")
+            tunable_qubit.qmodel.flux = flux
+
+        hs = self.hilbert_space()
+        hs.generate_lookup()
+        evals, evecs_raw = hs.eigensys(evals_count=evals_count)
+        if hasattr(evecs_raw[0], "full"):
+            evecs = np.column_stack([
+                np.array(v.full(), dtype=complex).reshape(-1) for v in evecs_raw
+            ])
+        else:
+            evecs = np.array(evecs_raw, dtype=complex)
+            if evecs.shape[0] == evals_count and evecs.ndim == 2:
+                evecs = evecs.T
+        return evals, evecs, hs
+
+    def avoided_crossing_gap(
+        self, bare_a, bare_b, flux=None, tunable_qubit=None, evals_count=10,
+    ) -> float:
+        r"""Frequency gap between the dressed states nearest two bare product
+        states (Hz).
+
+        Identifies each bare product state ``|n_{q0}, n_{res}, n_{q1}\rangle``
+        by maximum overlap with the dressed eigenvectors from
+        :meth:`dressed_eigensys` (standard bare-to-dressed labeling at an
+        avoided crossing — each factor's bare state is the corresponding
+        one-hot vector in that subsystem's own truncated eigenbasis, since
+        :class:`scqubits.HilbertSpace` already represents the composite space
+        as a tensor product of each subsystem's diagonalized eigenbasis).
+
+        At an exact avoided crossing the two overlaps are close to 0.5/0.5
+        and the returned gap equals the full splitting — the effective
+        coupling strength there is ``gap / 2``.
+
+        Parameters
+        ----------
+        bare_a, bare_b : tuple of int
+            Bare occupation tuples ``(n_q0, n_resonator, n_q1)`` for the two
+            states of interest (e.g. ``(1, 0, 1)`` for |11⟩ and ``(2, 0, 0)``
+            for |02⟩ of q0).
+        flux, tunable_qubit, evals_count :
+            Forwarded to :meth:`dressed_eigensys`.
+
+        Returns
+        -------
+        float
+            ``|E_dressed(bare_b) - E_dressed(bare_a)|`` in Hz.
+        """
+        evals, evecs, hs = self.dressed_eigensys(
+            flux=flux, tunable_qubit=tunable_qubit, evals_count=evals_count,
+        )
+        dims = [s.truncated_dim for s in hs.subsystem_list]
+
+        def _bare_vector(bare_tuple):
+            vecs = []
+            for n, d in zip(bare_tuple, dims):
+                v = np.zeros(d, dtype=complex)
+                v[n] = 1.0
+                vecs.append(v)
+            full = vecs[0]
+            for v in vecs[1:]:
+                full = np.kron(full, v)
+            return full
+
+        def _dressed_energy(bare_tuple):
+            overlaps = np.abs(evecs.conj().T @ _bare_vector(bare_tuple)) ** 2
+            return evals[int(np.argmax(overlaps))]
+
+        return abs(_dressed_energy(bare_b) - _dressed_energy(bare_a)) * 1e9
+
 
 class tunable_coupler(edge):
     """Flux-tunable SQUID-based coupler between two qubits.
