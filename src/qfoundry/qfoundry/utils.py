@@ -71,28 +71,30 @@ def E_to_C(E):
 def L_to_E(L):
     r"""Inductive energy (Hz) implied by an inductance L (H).
 
-    Using the flux quantum :math:`\Phi_0 = h/(2e)`, the inductive energy is
-    :math:`E_L = (\Phi_0/2\pi)^2/L` (the reduced flux :math:`\Phi_0/2\pi`
-    enters, not :math:`\Phi_0` directly). This is the definition
+    Using the reduced flux quantum :math:`\varphi_0 = h/(2e) / 2\pi`, the inductive 
+    energy is :math:`E_L = (\varphi_0)^2/L`. Using using the reduced flux quantum, 
+    $\varphi_0 = \Phi_0 / 2\pi = \hbar / 2e$, is the only way to make the dimensionless 
+    superconducting phase canonically conjugate to the Cooper pair number operator without
+    introducing a factor of $2\pi$ in the commutation relation. The inductive energy is
     self-consistent with :math:`f_0 = \sqrt{8 E_C E_L}` (see
     :meth:`qfoundry.resonator.cpw_resonator.from_energies`) for a plain LC
     oscillator with :math:`f_0 = 1/(2\pi\sqrt{LC})`:
 
     .. math::
 
-        E_L/h = \frac{\Phi_0^2}{4\pi^2 L h} = \frac{h}{16\,\pi^2\,e^2\,L}
+        E_L/h = \frac{\varphi_0^2}{L h} = \frac{\hbar^2}{4 e^2 L h}
     """
-    phi_0 = h / (2 * e_0)  # flux quantum
-    return phi_0**2 / (4 * pi**2 * L) / h  # in Hz
+    phi_0 = hbar / (2 * e_0) # reduced flux quantum
+    return phi_0**2 / L / h  # in Hz
 
 
 def E_to_L(E):
     """
     Convert inductive energy (Hz) to inductance (H).
-    E_L/h = Phi_0^2/(4*pi^2*L*h) => L = Phi_0^2/(4*pi^2*E_L*h)
+    E_L/h = phi_0^2/(L*h) => L = phi_0^2/(E_L*h)
     """
-    phi_0 = h / (2 * e_0)  # flux quantum
-    return phi_0**2 / (4 * pi**2 * E) / h  # in H
+    phi_0 = hbar / (2 * e_0)  # reduced flux quantum
+    return phi_0**2 / E / h  # in H
 
 
 def Cq_to_E(Cq, C1, C2):
