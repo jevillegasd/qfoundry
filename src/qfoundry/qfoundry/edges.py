@@ -215,6 +215,47 @@ def _C_cap_qr(g_Hz: float, qubit: transmon, resonator: cpw_resonator) -> float:
     return 2.0 * g_Hz * np.sqrt(C_q * C_r) / np.sqrt(f_q * f_r)
 
 
+def label_bare_states(evecs: np.ndarray, dims: list) -> list:
+    r"""Identify the dominant bare product state for each dressed eigenvector.
+
+    For a composite :class:`scqubits.HilbertSpace` built as a tensor product
+    of subsystems (each already expressed in its own diagonalized/truncated
+    eigenbasis — e.g. ``[q0, resonator, q1]`` as built by
+    :meth:`bus_resonator_coupler.hilbert_space`), the bare product state
+    :math:`|n_0, n_1, \ldots\rangle` is exactly the standard basis vector at
+    the flattened (row-major/``kron``-order) index. So the bare state with
+    maximum overlap for a given dressed eigenvector is simply the basis index
+    of its largest-magnitude component — no need to construct and project
+    against candidate bare vectors one at a time.
+
+    Parameters
+    ----------
+    evecs : ndarray
+        Dressed eigenvectors as columns, shape ``(dim, n_states)`` — the
+        ``evecs`` returned by :meth:`bus_resonator_coupler.dressed_eigensys`.
+    dims : list of int
+        Truncated dimension of each subsystem, in the same order used to
+        build the composite Hilbert space (e.g.
+        ``[s.truncated_dim for s in hs.subsystem_list]``).
+
+    Returns
+    -------
+    list of tuple of int
+        One bare-state tuple per column of ``evecs``, in the same subsystem
+        order as ``dims``.
+    """
+    labels = []
+    for col in range(evecs.shape[1]):
+        probs = np.abs(evecs[:, col]) ** 2
+        idx = int(np.argmax(probs))
+        tup = []
+        for d in reversed(dims):
+            idx, n = divmod(idx, d)
+            tup.append(n)
+        labels.append(tuple(reversed(tup)))
+    return labels
+
+
 # ---------------------------------------------------------------------------
 # Base class
 # ---------------------------------------------------------------------------
@@ -1020,6 +1061,21 @@ class bus_resonator_coupler(edge):
             return evals[int(np.argmax(overlaps))]
 
         return abs(_dressed_energy(bare_b) - _dressed_energy(bare_a)) * 1e9
+
+    def bare_state_labels(self, flux=None, tunable_qubit=None, evals_count=10) -> list:
+        """Convenience wrapper: diagonalize (see :meth:`dressed_eigensys`) and
+        label each of the ``evals_count`` dressed levels with its dominant
+        bare product state via :func:`label_bare_states`.
+
+        Prefer calling :func:`label_bare_states` directly on an
+        already-computed ``(evals, evecs, hs)`` (e.g. from a flux sweep) to
+        avoid re-diagonalizing for every flux point.
+        """
+        _evals, evecs, hs = self.dressed_eigensys(
+            flux=flux, tunable_qubit=tunable_qubit, evals_count=evals_count,
+        )
+        dims = [s.truncated_dim for s in hs.subsystem_list]
+        return label_bare_states(evecs, dims)
 
 
 class tunable_coupler(edge):
