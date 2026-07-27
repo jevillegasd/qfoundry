@@ -35,6 +35,7 @@ References
 [Ku2020]         Ku et al., PRX Quantum 2, 040305 (2020).
 [Jeffrey2014]    Jeffrey et al., Phys. Rev. Lett. 112, 190504 (2014).
 [Wallraff2004]   Wallraff et al., Nature 431, 162 (2004).
+[ManentiMotta2023]   Manenti & Motta, "Cross-resonance gate", in Quantum Information Sciences, Oxford University Press (2023).
 """
 
 from __future__ import annotations
@@ -321,18 +322,21 @@ class edge(ABC):
 
         .. math::
 
-            \zeta = \frac{2g^2 \alpha_0}{\Delta(\Delta + \alpha_0)}
-                  + \frac{2g^2 \alpha_1}{-\Delta(-\Delta + \alpha_1)}
+            \zeta = 2 g^2 \left(\frac{1}{\Delta - \alpha_1} - \frac{1}{\Delta + \alpha_0}\right)
 
         where :math:`\Delta = (\omega_0 - \omega_1)/(2\pi)` (Hz) is the bare
         qubit detuning, :math:`\alpha_i` is the anharmonicity of qubit *i*
         (Hz), and :math:`g` is the transverse coupling (Hz).
 
-        Note that :math:`\zeta` is symmetric under q0 ↔ q1 by construction.
+        Note that :math:`\zeta` is asymmetric under q0 ↔ q1 by construction.
+        The prefactor of 1/2 depends on how the Hamiltonian is expressed, here
+
+        .. math::
+            \hat{H} = \frac{\omega_0}{2}\hat{\sigma}_z^{(0)} + \frac{\omega_1}{2}\hat{\sigma}_z^{(1)} + \frac{\zeta}{4} \hat{\sigma}_z^{(0)} \otimes \hat{\sigma}_z^{(1)}
 
         References
         ----------
-        [Blais2021] Eq. (4.28); [Ku2020] supplementary material.
+        [ManentiMotta] Eq 14.78.; [Paytterson2019] Eq. 4.28/2; [Magesan2020] Eq. 4.27
         """
         g_hz  = self.g()
         a0    = self.q0.alpha()   # Hz  (negative for transmon)
@@ -342,9 +346,9 @@ class edge(ABC):
         if Delta == 0.0:
             raise ValueError("zeta() is undefined for degenerate qubits (Δ = 0).")
 
-        term0 = 2.0 * g_hz**2 * a0 / (Delta * (Delta + a0))
-        term1 = 2.0 * g_hz**2 * a1 / (-Delta * (-Delta + a1))
-        return term0 + term1
+        term0 = 1 / (Delta + a0)
+        term1 = 1 / (Delta - a1)
+        return 2.0 * g_hz**2*(- term0 + term1)
 
     def nu(self) -> float:
         r"""Bare IX coupling coefficient :math:`\nu` (Hz per rad s⁻¹ of drive).
@@ -354,7 +358,7 @@ class edge(ABC):
 
         .. math::
 
-            \nu = \frac{g \, \alpha_1}{\Delta_{01}(\Delta_{01} + \alpha_1)}
+            \nu = \frac{g}{\Delta_{01} + \alpha_0}
 
         where :math:`\Delta_{01} = f_0 - f_1` (Hz) and :math:`\alpha_1` is
         the anharmonicity of the *target* qubit.  The full IX rate under a
@@ -365,16 +369,16 @@ class edge(ABC):
 
         References
         ----------
-        [Magesan2020] Eq. (C8).
+         [ManentiMotta2023] Eq. 14.81.
         """
         g_hz   = self.g()
-        a1     = self.q1.alpha()
+        a0     = self.q0.alpha()
         Delta  = (self.q0.omega01() - self.q1.omega01()) / (2.0 * pi)  # Hz
 
-        if Delta == 0.0 or (Delta + a1) == 0.0:
-            raise ValueError("nu() is singular for this qubit pair (Δ=0 or Δ+α₁=0).")
+        if Delta == 0.0 or (Delta + a0) == 0.0:
+            raise ValueError("nu() is singular for this qubit pair (Δ=0 or Δ+α₀=0).")
 
-        return g_hz * a1 / (Delta * (Delta + a1))
+        return -g_hz / (Delta + a0)
 
     def mu(self) -> float:
         r"""Bare ZX coupling coefficient :math:`\mu` (Hz per rad s⁻¹ of drive).
@@ -383,16 +387,14 @@ class edge(ABC):
 
         .. math::
 
-            \mu = \frac{g^2}{\Delta_{01}}
-                  \left(\frac{1}{\Delta_{01} + \alpha_0}
-                       -\frac{1}{\Delta_{01} - \alpha_1}\right)
+            \mu = \frac{g \, \alpha_0}{\Delta_{01} \, (\Delta_{01} + \alpha_0)}
 
-        where :math:`\alpha_0` is the anharmonicity of the *control* qubit.
+        where :math:`\alpha_0` is the anharmonicity of the *target* qubit.
         The full ZX rate under a drive :math:`\Omega` is :math:`\mu \cdot \Omega`.
 
         References
         ----------
-        [Magesan2020] Eq. (C9).
+        [ManentiMotta2023] Eq. 14.81.
         """
         g_hz  = self.g()
         a0    = self.q0.alpha()
@@ -402,7 +404,7 @@ class edge(ABC):
         if Delta == 0.0:
             raise ValueError("mu() is singular for degenerate qubits (Δ = 0).")
 
-        return g_hz**2 / Delta * (1.0 / (Delta + a0) - 1.0 / (Delta - a1))
+        return -g_hz*a0 / Delta / (Delta * (Delta + a0))
 
     def nu_driven(self, Omega: float) -> float:
         r"""IX interaction rate under a CR drive of amplitude :math:`\Omega`.
