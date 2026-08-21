@@ -22,7 +22,7 @@ from abc import ABC, abstractmethod
 from qfoundry.circuit import circuit
 from qfoundry.resonator import cpw, cpw_resonator
 from qfoundry.materials import sc_metal
-from qfoundry.utils import Ic_to_R, R_to_Ic
+from qfoundry.utils import Ic_to_R, R_to_Ic, Ej_to_Ic
 import scqubits as scq
 
 from scipy.constants import e as e_0
@@ -446,6 +446,63 @@ class transmon(qubit, circuit):
         kwargs.pop("C_sigma", None)   # already consumed above; not a transmon.__init__ param
         return cls(E_j=ej, E_c=ec, **kwargs)
 
+    @staticmethod
+    def ej_ec_from_f01_alpha(f01, alpha):
+        """Jointly solve {f01(Ej,Ec)=f01, alpha(Ej,Ec)=alpha} for (Ej, Ec), both Hz.
+
+        Uses the leading-order approximation (Ec0=|alpha|, Ej0 from the from_f01
+        inversion at that Ec0) as the seed for a 2D refinement against qfoundry's
+        own analytical f01()/alpha() formulas (Koch 2007 eq. 3.1, 3.4).
+
+        If f01 is None, only the leading-order Ec=|alpha| is returned (Ej=None) --
+        matching the single-unknown case where no joint solve is possible.
+
+        Raises ValueError if the joint solve does not converge.
+        """
+        ec0 = abs(alpha)
+        if f01 is None:
+            return None, ec0
+
+        from scipy.optimize import fsolve
+
+        ej0 = (f01 + ec0) ** 2 / (8 * ec0)
+
+        def _residual(x):
+            ej, ec = x
+            f01_calc = sqrt(8 * ej * ec) - ec
+            alpha_calc = -ec * (1 - 1 / 4 * sqrt(ec / (8 * ej)))
+            return [f01_calc - f01, alpha_calc - alpha]
+
+        sol, _info, ier, mesg = fsolve(_residual, [ej0, ec0], full_output=True)
+        if ier != 1:
+            raise ValueError(
+                f"ej_ec_from_f01_alpha: joint solve did not converge for "
+                f"f01={f01}, alpha={alpha}: {mesg}"
+            )
+        ej_sol, ec_sol = sol
+        return ej_sol, ec_sol
+
+    @classmethod
+    def from_alpha(cls, f01: float, alpha: float, R_jx: float = 0.0, **kwargs):
+        """Initialize transmon from a measured f01 and anharmonicity alpha,
+        jointly solving for E_j and E_c (unlike from_f01, which requires E_c
+        already known).
+        """
+        ej, ec = cls.ej_ec_from_f01_alpha(f01, alpha)
+        if ej is None:
+            raise ValueError("from_alpha requires f01 to solve for both Ej and Ec.")
+
+        Rj = kwargs.get("R_j", None)
+        if Rj is None:
+            ic = Ej_to_Ic(ej)
+            Rj = Ic_to_R(ic, mat=kwargs.get("mat", sc_metal(1.14, 25e-3))) - R_jx
+
+        kwargs["R_j"] = Rj
+        kwargs["R_jx"] = R_jx
+        kwargs.pop("E_c", None)
+        kwargs.pop("C_sigma", None)
+        return cls(E_j=ej, E_c=ec, **kwargs)
+
     def alpha(self):
         """
         Anharmonicity
@@ -602,6 +659,20 @@ class transmon(qubit, circuit):
         Delta = self.delta()
         alpha = self.alpha()
         return (self.g01() ** 2) * alpha / (Delta * (Delta + alpha))
+
+    @staticmethod
+    def chi_to_g(chi_hz: float, delta_hz: float, alpha_hz: float = None):
+        """Invert chi() for g01 given a measured dispersive shift and detuning
+        delta_hz = f01 - f_r. chi = g^2*alpha/(delta*(delta+alpha)) =>
+        g = sqrt(|chi*delta*(delta+alpha)/alpha|). Falls back to the simple
+        Jaynes-Cummings form sqrt(|chi*delta|) if alpha_hz is None/zero."""
+        if delta_hz == 0:
+            return None
+        if alpha_hz:
+            g2 = abs(chi_hz * delta_hz * (delta_hz + alpha_hz) / alpha_hz)
+        else:
+            g2 = abs(chi_hz * delta_hz)
+        return sqrt(g2)
 
     def E_m(self, m):
         """

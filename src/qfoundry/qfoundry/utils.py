@@ -144,3 +144,32 @@ def R_to_Ic(R, mat=sc_metal(1.14, T=20e-3)):
     """
     from .josephson import JosephsonJunctionAnalyzer
     return JosephsonJunctionAnalyzer().R_to_Ic(R, mat.sc_gap(), T=mat.T)
+
+
+def Ej_to_Ic(Ej):
+    """Critical current (A) implied by Josephson energy Ej (Hz). Ic = Ej*4*pi*e_0."""
+    return Ej * 4.0 * pi * e_0
+
+
+def Ic_to_Ej(Ic):
+    """Josephson energy (Hz) implied by critical current Ic (A). Inverse of Ej_to_Ic."""
+    return Ic / (4.0 * pi * e_0)
+
+
+def Ck_to_kappa_ext(f0, Ck, C, Z_L=50.0):
+    """External coupling rate (Hz) from coupling capacitance Ck onto a resonator
+    of effective capacitance C at frequency f0. Same relation as
+    cpw_resonator.kappa_ext(), exposed on raw scalars for pipelines (e.g.
+    FEM-cap-matrix-derived C) that don't have a full cpw geometry object.
+
+    kappa_ext = (2*pi*f0*Ck)^2 * Z_L / C / (2*pi)
+    """
+    omega0 = 2 * pi * f0
+    return (omega0 * Ck) ** 2 * Z_L / C / (2 * pi)
+
+
+def kappa_ext_to_Ck(f0, kappa_ext, C, Z_L=50.0):
+    """Coupling capacitance Ck required for a target kappa_ext (Hz). Inverse of
+    Ck_to_kappa_ext()."""
+    omega0 = 2 * pi * f0
+    return sqrt(kappa_ext * 2 * pi * C / Z_L) / omega0

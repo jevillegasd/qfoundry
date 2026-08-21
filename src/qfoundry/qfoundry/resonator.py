@@ -307,8 +307,21 @@ class cpw_resonator(circuit):
         temp_resonator = cls(frequency=frequency, **kwargs)
         omega = 2 * np.pi * frequency
         C_k_required = np.sqrt(np.pi / (4 * Q_ext_target)) / (temp_resonator.wg.Z_0 * omega)
-        
+
         kwargs['Ck'] = C_k_required
+        return cls(frequency=frequency, **kwargs)
+
+    @classmethod
+    def design_for_kappa_ext(cls, frequency: float, kappa_ext_target_hz: float, Z_L: float = None, **kwargs):
+        """Design a resonator with a specific external coupling rate (kappa_ext,
+        Hz) by solving for Ck. Companion to design_for_coupling() (which targets
+        Q_ext — a different convention: wg.Z_0, no explicit Z_L)."""
+        from qfoundry.utils import kappa_ext_to_Ck
+        kwargs.pop("Ck", None)
+        temp_resonator = cls(frequency=frequency, **kwargs)
+        if Z_L is None:
+            Z_L = temp_resonator.wg.Z_0k or 50.0
+        kwargs['Ck'] = kappa_ext_to_Ck(frequency, kappa_ext_target_hz, temp_resonator.C(), Z_L)
         return cls(frequency=frequency, **kwargs)
 
     def _get_length_(self, f0, Cp: float = 0.0, n: int = 1):
@@ -361,13 +374,13 @@ class cpw_resonator(circuit):
 
     def kappa_ext(self, Cin=None, Z_L: float = None):
         """External coupling rate (FWHM) due to coupling capacitance."""
+        from qfoundry.utils import Ck_to_kappa_ext
         if Z_L is None:
             Z_L = self.wg.Z_0k or 50.0
         if Cin is None:
             Cin = self.Ck
-            
-        kappa_ = (self.w0()*Cin)**2*Z_L / self.C()
-        return kappa_ / (2 * np.pi)
+
+        return Ck_to_kappa_ext(self.f0(), Cin, self.C(), Z_L)
 
     def Q_ext(self, Cin=None):
         """External quality factor due to coupling capacitance."""
