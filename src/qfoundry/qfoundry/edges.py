@@ -491,7 +491,7 @@ class edge(ABC):
 # ---------------------------------------------------------------------------
 
 class capacitive_coupler(edge):
-    """Fixed capacitive coupler between two qubits.
+    r"""Fixed capacitive coupler between two qubits.
 
     The two qubits are coupled through a shunt capacitance :math:`C_{12}`.
     This is the dominant coupling mechanism in most planar transmon circuits,
@@ -1287,7 +1287,7 @@ class tunable_coupler(edge):
 
 
 class hybrid_coupler(edge):
-    """Hybrid coupler for 3-D integrated circuits (vacuum-gap interfaces).
+    r"""Hybrid coupler for 3-D integrated circuits (vacuum-gap interfaces).
 
     In multi-chip or flip-chip architectures, qubits on adjacent chips interact
     through a vacuum gap that provides both capacitive coupling (through the gap

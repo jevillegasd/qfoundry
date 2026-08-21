@@ -21,7 +21,8 @@ from abc import ABC, abstractmethod
 
 from qfoundry.circuit import circuit
 from qfoundry.resonator import cpw, cpw_resonator
-from qfoundry.utils import sc_metal, Ic_to_R, R_to_Ic
+from qfoundry.materials import sc_metal
+from qfoundry.utils import Ic_to_R, R_to_Ic
 import scqubits as scq
 
 from scipy.constants import e as e_0
@@ -475,7 +476,7 @@ class transmon(qubit, circuit):
         return self.L_J(phi)
 
     def C(self):
-        """
+        r"""
         RLC circuit model capacitance for the ground state
 
         .. math::
@@ -499,7 +500,7 @@ class transmon(qubit, circuit):
         return self._ej_
 
     def nj(self,j):
-        """
+        r"""
         Charge matrix element between states j+1 and j
         .. math::
             |< j + 1 | \hat{n} | j >| \approx \sqrt{\frac{1+j}{2}}\left(\frac{E_j}{8 E_c}\right)^{1/4}
@@ -558,7 +559,7 @@ class transmon(qubit, circuit):
 
         C_sigma = self.C()
         f_r     = self.res_ro.f0()      # Resonator frequency
-        C_r     = self.res_ro.C()       # Resonator capacitance (used in fallback)
+        C_r     = self.res_ro.C()       # Resonator effective capacitance
         V_zpf    = self.res_ro.V_zpf()  # Resonator zero-point voltage fluctuation
         C_g   = self.C_g
         try:

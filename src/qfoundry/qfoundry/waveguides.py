@@ -4,13 +4,9 @@ Includes coplanar waveguide (CPW) transmission line calculations.
 """
 import numpy as np
 from scipy import special as sp
-from scipy.constants import c, epsilon_0, m_e, hbar, e, k, pi, Avogadro
+from scipy.constants import c, epsilon_0
 
-Avogadro = 6.022e23  # atoms per mol
-Al_mass = 26.98e-3  # kg/mol
-Al_density = 2.7e3  # kg/m^3
-n_Al = Avogadro * Al_density / Al_mass  # atoms / m^3
-mu_0 = 4 * np.pi * 1e-7  # H/mw
+from qfoundry.materials import sc_metal, mu_0
 
 class cpw:
     """
@@ -32,16 +28,12 @@ class cpw:
             Gap width from center conductor to ground in m (converted from μm if > 1e-3)
         thickness: float = 100e-9
             Superconducting metal layer thickness in m
-        rho: float = 2.06e-9
-            Normal state resistivity of the thin film in Ω⋅m
-        tc: float = 1.23
-            Critical temperature in K
+        material: sc_metal, default=sc_metal()
+            Superconducting metal of the CPW trace. Supplies the normal-state
+            resistivity, critical temperature and London penetration depth
+            used for the kinetic inductance and coherence length.
         alpha: float = 2.4e-2
             Attenuation coefficient in m⁻¹
-        n_s = 3*n_Al
-            Superconducting electron density in m⁻³
-        T = 20e-3
-            Operating temperature in K
         cm_x = 0.0e-12
             Capacitance correction per unit length in F/m
 
@@ -50,14 +42,15 @@ class cpw:
     capacitances(w, s, h, eps_r)
         Calculate CPW capacitance per unit length and effective permittivity
         using Ghione (1984) elliptic integral formulation
-    inductances(w, s, d, h, rho, tc)
+    inductances(w, s, d, h)
         Calculate magnetic and kinetic inductances per unit length
         Kinetic inductance follows Wallraff et al. (2008) Eq. (A1)
-    
+
     Notes
     -----
     The kinetic inductance calculation assumes the dirty limit approximation
-    and uses the London penetration depth with temperature dependence.
+    and uses the material's London penetration depth at its operating
+    temperature; see qfoundry.materials.sc_metal.
     """
 
     def __init__(
@@ -67,13 +60,10 @@ class cpw:
         width: float,  # [length], microstrip width in m
         spacing: float,  # [length], Space from ground plane in m
         thickness: float,
-        rho: float = 2.06e-9,  # normal state resisitivity of the thin film
-        tc: float = 1.23,  # critical temperature in K
+        material: sc_metal = None,  # superconducting metal of the CPW trace
         alpha: float = 2.4e-2,  # attenuation cofficient m^-1
-        n_s=3 * n_Al,  # superconducting electron density in m^-3
-        T=20e-3,
         cm_x=0.0e-12,  # capacitance corection per unit length in F/m
-    ):  # temperature in K
+    ):
 
         # if dimensional units are large, assume they are in um
         if width > 1e-3 or thickness > 1e-3 or spacing > 1e-3:
@@ -86,19 +76,16 @@ class cpw:
         self.s = spacing  # to match [1]
         self.d = thickness  # to match [1]
         self.h = height
-        self.rho_tc = rho
-        self.tc = tc
 
-        # London penetration length alternative
-        Lambda_0 = np.sqrt(m_e / (mu_0 * n_s * e**2))  # London penetration length in m
-        self.Lambda_L = Lambda_0 * (1 - (T / tc) ** 4) ** (
-            -0.5
-        )  # Effective London penetration length in m (https://rashid-phy.github.io/me/pdf/notes/Superconductor_Theory.pdf eq. 24)
+        self.material = material if material is not None else sc_metal()
+        self.rho_tc = self.material.rho
+        self.tc = self.material.Tc
+        self.Lambda_L = self.material.london_penetration_depth()
+        self.lambda_0 = self.material.coherence_length()
 
         self.alpha = alpha  # attenuation cofficient in m^-1
-        self.lambda_0 = 1.05e-3 * np.sqrt(self.rho_tc / self.tc)  # Cohenrece Length
 
-        self.L_m, self.L_k = self.inductances(self.w, self.s, self.d, self.h, rho, tc)
+        self.L_m, self.L_k = self.inductances(self.w, self.s, self.d, self.h)
         self.C_m, self.epsilon_e = self.capacitances(self.w, self.s, self.h, epsilon_r)
         self.C_m += cm_x
         self.L = self.L_m + self.L_k
@@ -136,8 +123,6 @@ class cpw:
         s: float,
         d: float,
         h: float,
-        rho: float = 2.06e-3,
-        tc: float = 1.23,
     ):
         """
         Calculate normal and kinetic inductances of a CPW

@@ -2,7 +2,7 @@
 from math import pi
 from scipy.constants import elementary_charge as _e0
 from scipy.constants import Boltzmann as _kB
-from qfoundry.utils import sc_metal
+from qfoundry.materials import sc_metal, n_Al
 from qfoundry.waveguides import cpw
 
 class DesignRule:
@@ -94,7 +94,12 @@ class PDK:
             "DR_MIN_WAVEGUIDE_WIDTH": DR_MIN_WAVEGUIDE_WIDTH,
         }
         self.Tc = 1.14  # Critical temperature of the superconductor [K]
-        self.mat_prop = sc_metal(self.Tc, self.cpw_t)
+        self.T_op = 0.02  # Operating temperature [K]
+        self.metal_rho = 2.06e-9  # Metal thin film normal-state resistivity [Ohm*m]
+        self.metal_n_s = 3 * n_Al  # Metal superconducting electron density [m^-3]
+        self.mat_prop = sc_metal(
+            Tc=self.Tc, T=self.T_op, rho=self.metal_rho, n_s=self.metal_n_s
+        )
 
     @property
     def k_Delta(self) -> float | None:
@@ -128,7 +133,7 @@ class PDK:
         return Rn if Rn > 0 else None
 
     def cpw(self):
-        
+
         """Return a coplanar waveguide object using the PDK parameters."""
         return cpw(
             epsilon_r=self.epsilon_r,
@@ -136,9 +141,8 @@ class PDK:
             width=self.cpw_w,
             spacing=self.cpw_g,
             thickness=self.cpw_t,
-            alpha= self.alpha,
-            tc = self.Tc,
-            T = 0.02,  # Operating temperature [K]
+            material=self.mat_prop,
+            alpha=self.alpha,
         )
 
     def __str__(self):

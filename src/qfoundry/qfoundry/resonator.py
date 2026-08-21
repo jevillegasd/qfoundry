@@ -134,11 +134,12 @@ class cpw_resonator(circuit):
         Create a resonator from a given length, iteratively solving for frequency 
         to account for frequency-dependent coupling capacitance (Cp).
         """
-        wg = kwargs.get("wg", cpw(11.45, 550, 15, 7.5, 0.2))
+        kwargs.setdefault("wg", cpw(11.45, 550, 15, 7.5, 0.2, material=kwargs.get("material")))
+        wg = kwargs["wg"]
         length_f = kwargs.get("length_f", 2)
         n = kwargs.get("n", 1)
-        Ck = kwargs.get("Ck", 0.0) 
-        Cg = kwargs.get("Cg", 0.0) 
+        Ck = kwargs.get("Ck", 0.0)
+        Cg = kwargs.get("Cg", 0.0)
         R_L = kwargs.get("R_L", 50.0)
 
         Cp_factor = 2 if length_f in [1, 2] else 1
@@ -187,7 +188,8 @@ class cpw_resonator(circuit):
         Create a resonator from a given length using scipy.optimize.fsolve to
         robustly handle implicit frequency dependence of Cp.
         """
-        wg = kwargs.get("wg", cpw(11.45, 550, 15, 7.5, 0.2))
+        kwargs.setdefault("wg", cpw(11.45, 550, 15, 7.5, 0.2, material=kwargs.get("material")))
+        wg = kwargs["wg"]
         length_f = kwargs.get("length_f", 2)
         n = kwargs.get("n", 1)
         Ck = kwargs.get("Ck", 0.0)
@@ -227,7 +229,31 @@ class cpw_resonator(circuit):
             return cls.from_length(length, **kwargs)
         
         return cls(frequency=f0_solution, **kwargs)
-        
+
+    @classmethod
+    def from_total_capacitance(cls, C_total: float, **kwargs):
+        """
+        Create a resonator from a total self-capacitance, e.g. extracted from
+        a FEM capacitance-matrix simulation, instead of a target frequency.
+        """
+        kwargs.setdefault("wg", cpw(11.45, 550, 15, 7.5, 0.2, material=kwargs.get("material")))
+        length_f = kwargs.get("length_f", 2)
+        Cg = kwargs.get("Cg", 0.0)
+        Ck = kwargs.get("Ck", 0.0)
+
+        Cp_factor = 2 if length_f in [1, 2] else 1
+        C_trace = C_total - Cp_factor * (Cg + Ck)
+
+        if C_trace <= 0:
+            raise ValueError(
+                "C_total must exceed the coupling capacitance contribution "
+                f"(Cp_factor * (Cg + Ck) = {Cp_factor * (Cg + Ck):.3e} F); "
+                "check that C_total is the full resonator self-capacitance."
+            )
+
+        length = C_trace / kwargs["wg"].C_m
+        return cls.from_length_exact(length, **kwargs)
+
     @classmethod
     def coupling_strength_parameter(cls, Ck: float, Cg: float, frequency: float, R_L: float = 50.0):
         """Calculate the coupling strength parameter ωC_coupling*R_L."""
@@ -259,7 +285,7 @@ class cpw_resonator(circuit):
         """
         from qfoundry.utils import E_to_C, E_to_L
 
-        kwargs.setdefault("wg", cpw(11.45, 550, 15, 7.5, 0.2))
+        kwargs.setdefault("wg", cpw(11.45, 550, 15, 7.5, 0.2, material=kwargs.get("material")))
         frequency = np.sqrt(8.0 * E_c * E_l)
         resonator = cls(frequency=frequency, **kwargs)
 
@@ -272,7 +298,7 @@ class cpw_resonator(circuit):
     @classmethod
     def from_frequency(cls, frequency: float, **kwargs):
         """Create a resonator directly from a target resonance frequency."""
-        kwargs.setdefault("wg", cpw(11.45, 550, 15, 7.5, 0.2))
+        kwargs.setdefault("wg", cpw(11.45, 550, 15, 7.5, 0.2, material=kwargs.get("material")))
         return cls(frequency=frequency, **kwargs)
 
     @classmethod

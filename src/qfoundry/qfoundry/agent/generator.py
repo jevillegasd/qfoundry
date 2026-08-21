@@ -61,7 +61,7 @@ class NotebookGenerator:
                 "from matplotlib import pyplot as plt\n",
                 "\n",
                 "from qfoundry import cpw_resonator, cpw\n",
-                "from qfoundry.utils import sc_metal\n",
+                "from qfoundry.materials import sc_metal\n",
                 "from qfoundry.qubits import transmon, tunable_transmon\n",
                 "from qfoundry.PDK import PDK\n",
                 "from qfoundry.topology import LatticeGenerator\n",

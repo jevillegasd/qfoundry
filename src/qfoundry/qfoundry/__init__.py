@@ -4,6 +4,7 @@ qfoundry: utilities for superconducting circuit design and analysis.
 Public API (lazy-imported):
 - resonator: cpw, cpw_resonator
 - qubits: transmon, tunable_transmon
+- materials: sc_metal
 - simulation: capacitance
 
 Versioning follows PEP 440; see __version__.
@@ -29,6 +30,7 @@ __all__ = [
     "transmon",
     "tunable_transmon",
     "qubit",
+    "sc_metal",
     "capacitance",
     "josephson",
     "edge",
@@ -54,6 +56,10 @@ def __getattr__(name):
         from .qubits import transmon, tunable_transmon, qubit  # type: ignore
 
         return {"transmon": transmon, "tunable_transmon": tunable_transmon, "qubit": qubit}[name]
+    if name == "sc_metal":
+        from .materials import sc_metal  # type: ignore
+
+        return sc_metal
     if name == "capacitance":
         try:
             from .simulation import capacitance  # type: ignore

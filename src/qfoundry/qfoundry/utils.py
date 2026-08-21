@@ -7,11 +7,11 @@ Some formulas reference:
 
 from scipy.constants import elementary_charge as e_0
 from scipy.constants import h, hbar
-from scipy.constants import Boltzmann as k_B
 from numpy import sqrt, pi, tanh, ix_
 from numpy.linalg import inv
 
 from qfoundry.circuit import circuit
+from qfoundry.materials import sc_metal  # re-exported for backward compatibility
 
 # Helper function for capacitance operations
 def parallel(Za, Zb):
@@ -127,26 +127,6 @@ def g_hm(Cg, hm0: circuit, hm1: circuit):
     """
     # return Cg_to_E(Cg, hm0.C(), hm1.C())
     return cap_coupling(Cg, hm0.C(), hm1.C(), hm0.f0() * 2 * pi, hm1.f0() * 2 * pi)
-
-
-class sc_metal:
-    """
-    Superconductive metal.
-    Modelled only from its critical temperature.
-    """
-
-    def __init__(self, Tc=1.14, T=20e-3):
-        self.Tc = Tc
-        self.T = T
-
-    def sc_gap(self):
-        if self.T < 0.1:
-            return 1.764 * k_B * self.Tc
-        else:
-            return 3.076 * k_B * sqrt(1 - self.T / self.Tc)
-
-    def sc_gap_eV(self):
-        return self.sc_gap() / e_0
 
 
 def Ic_to_R(Ic, mat=sc_metal(1.14, T=20e-3)):
