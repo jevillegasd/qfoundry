@@ -350,8 +350,13 @@ class cpw_resonator(circuit):
         return np.pi / (4 * (self.wg.Z_0 * 2 * np.pi * self.f0() * Cin) ** 2)
 
     def Q_int(self):
-        """Internal quality factor due to material losses."""
-        return self.w0() * self.L() / self._R_
+        """Internal quality factor due to material losses.
+
+        Q_int = R/(w0*L), the standard parallel-RLC result (equivalently
+        w0*R*C, since w0*L = 1/(w0*C) at resonance) — matches the inherited
+        circuit.Q() = R*sqrt(C/L).
+        """
+        return self._R_ / (self.w0() * self.L())
     
     def Q_total(self, Cin=None):
         """Loaded quality factor combining internal and external Q."""
