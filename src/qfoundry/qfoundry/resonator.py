@@ -11,9 +11,10 @@ References
 - Wallraff et al. (2008), arXiv:0807.4094 - Main reference for CPW resonator theory
 """
 
+import warnings
 from scipy.constants import c, epsilon_0, m_e, hbar, e, k, pi, Avogadro
+from scipy.optimize import fsolve
 import numpy as np
-
 import scqubits as scq
 
 from qfoundry.waveguides import cpw
@@ -28,8 +29,8 @@ class cpw_resonator(circuit):
     lumped circuit with effective L and C values derived from the CPW geometry.
     
     The resonator frequency is given by f₀ = 1/(2π√LC) where:
-    - L = 2*L_l*l/(n*π)² (Wallraff Eq. 11)
-    - C = C_l*l/2 + C_c (Wallraff Eq. 12)
+    - L = 2*L_l*l/(n*π)² (half-wave) or 8*L_l*l/((2n-1)*π)² (quarter-wave)
+    - C = C_l*l/2 + C_c 
     
     Parameters
     ----------
@@ -53,20 +54,9 @@ class cpw_resonator(circuit):
     length : float
         Physical length of the resonator in m
     Cp : float
-        Effective coupling capacitance accounting for load impedance (Wallraff Eq. 15)
+        Effective coupling capacitance accounting for load impedance
     qmodel : scqubits.Oscillator
         Quantum model of the resonator for multi-level calculations
-        
-    Methods
-    -------
-    f0()
-        Resonance frequency in Hz
-    Q_ext(Cin=None)
-        External quality factor due to coupling
-    kappa_ext()
-        External coupling rate (FWHM) in Hz
-    Z_TL(f)
-        Transmission line impedance as function of frequency
         
     Notes
     -----
@@ -85,7 +75,7 @@ class cpw_resonator(circuit):
         n: int = 1,
         Cg: float = 0.0,
         Ck: float = 0.0,
-        R_L: float = 50.0,  # Load resistance in Ohms
+        R_L: float = 50.0, 
         **kwargs
     ):
         self.wg = wg
@@ -95,344 +85,200 @@ class cpw_resonator(circuit):
 
         if int(length_f) not in [1, 2, 4]:
             raise ValueError("length_f must be 1 (full-wave), 2 (half-wave) or 4 (quarter-wave)")
-        self.length_f = length_f  # length factor: 4: quarter wavelength resonator (short in one end)
-        self.n = n  # mode number
+        self.length_f = length_f 
+        self.n = n 
         self.Ck = Ck
 
-        wn = 2 * np.pi * frequency * n  # Angular frequency of the resonator mode
+        wn = 2 * np.pi * frequency * n 
 
-        if length_f in [1, 2]:
-            eff_k = 1 # Full coupling at antinode
-            Cp_factor = 2
-        else:  # Quarter-wave resonator
-            eff_k = 0  # Negligible contribution of shorted end to coupling capacitance
-            Cp_factor = 2 # Should be 1 for single count of antinode capacitance??
-        C_k = eff_k*Ck + Cg
+        # Assign coupling factors based on voltage antinodes
+        Cp_factor = 2 if length_f in [1, 2] else 1
+            
+        C_k = Ck + Cg
 
-        self.Cp = C_k / (1 + wn**2 * C_k ** 2 * R_L**2) # https://arxiv.org/pdf/0807.4094 (Wallraff2008) [15]  # Effective coupling capacitance including load impedance effect
+        # Effective coupling capacitance including load impedance effect
+        self.Cp = C_k / (1 + wn**2 * C_k**2 * R_L**2) 
         
         if self.length is None:
             self.length = self._get_length_(
-                frequency, self.Cp*Cp_factor , n = n
-            )/ self.length_f
+                frequency, self.Cp * Cp_factor, n=n
+            ) / self.length_f
 
-        # Equivalent circuit inducatnce Wallraff et al. (2008) Eq. (11): L = 2*L_l*l/(n*π)²
-        self._L_ = (
-            2 * self.wg.L * self.length / (self.n * 2 * np.pi) ** 2  # The factor of 1/2**2 cancels out when length_f=2, like in Wallraff Eq. 11
-        ) * self.length_f
+        # Effective Capacitance (bare mode C is always half the physical C)
+        self._C_ = (self.wg.C_m * self.length) / 2.0 + (self.Cp * Cp_factor)
 
-        # Equivalent circuit capacitance Wallraff et al. (2008) Eq. (12): C = C_l*l/2 + C_c 
-        self._C_ = (self.wg.C_m /2 * self.length* self.length_f  + self.Cp*Cp_factor)
+        # Effective Inductance
+        if self.length_f in [1, 2]:
+            self._L_ = (2 * self.wg.L * self.length) / (self.n * np.pi)**2
+        else:
+            self._L_ = (8 * self.wg.L * self.length) / ((2 * self.n - 1) * np.pi)**2
 
-        self._R_ = wg.Z_0k / (self.wg.alpha * self.length )
-         # Wallraff et al. (2008) Eq. (13): R = Z0/(alpha*l)
-
-        # Correct for the coupling capacitance 
-        self._R_ += (1 + wn**2 * (Ck + Cg) ** 2 * R_L**2) / (
-            wn**2 * (Ck + Cg + 1e-20) ** 2 * R_L
+        # Resistance and Losses
+        self._R_ = wg.Z_0k / (self.wg.alpha * self.length)
+        self._R_ += (1 + wn**2 * C_k**2 * R_L**2) / (
+            wn**2 * (C_k + 1e-20)**2 * R_L
         )
-       
 
+        # Quantum Model Initialization
         if self.qmodel is None and kwargs.get("inst_model", True):
             self.truncated_dim = kwargs.get("truncated_dim", 4)
             self.qmodel = scq.Oscillator(
-                E_osc=self.f0() * 1e-9,
+                E_osc=self.f0() * 1e-9, 
                 l_osc=self.length,
-                truncated_dim=self.truncated_dim,  # up to 3 photons (0,1,2,3)
-            ) 
+                truncated_dim=self.truncated_dim, 
+            )
             
-    
     @classmethod
     def from_length(cls, length: float, **kwargs):
         """
-        Create a resonator from a given length.
-        
-        Uses the distributed LC model from Wallraff et al. (2008) Eq. (11-12).
-        Iteratively solves for the correct frequency when coupling capacitances
-        are large, accounting for the frequency dependence of Cp.
-        
-        Parameters
-        ----------
-        length : float
-            Physical length of the resonator in m
-        **kwargs
-            Additional parameters passed to __init__
+        Create a resonator from a given length, iteratively solving for frequency 
+        to account for frequency-dependent coupling capacitance (Cp).
         """
-        
         wg = kwargs.get("wg", cpw(11.45, 550, 15, 7.5, 0.2))
-        length_f = kwargs.get("length_f", 2) 
+        length_f = kwargs.get("length_f", 2)
         n = kwargs.get("n", 1)
-        Ck = kwargs.get("Ck", 0.0) # Coupling capacitance to feedline in F
-        Cg = kwargs.get("Cg", 0.0) # Coupling capacitance to at antinode in F
+        Ck = kwargs.get("Ck", 0.0) 
+        Cg = kwargs.get("Cg", 0.0) 
         R_L = kwargs.get("R_L", 50.0)
-        
-        # Total nominal coupling capacitance
-         # Coupling efficiency factor, 1 for full coupling, <1 for partial eff_k = V(x)^2/ max|V(x)|^2
-        
+
+        Cp_factor = 2 if length_f in [1, 2] else 1
+        C_k = Ck + Cg
+
+        # Define nominal L and C for the initial frequency guess
+        C = (wg.C_m * length) / 2.0 + C_k * Cp_factor
         if length_f in [1, 2]:
-            eff_k = 1 # Full coupling at antinode
-            Cp_factor = 2
-        else:  # Quarter-wave resonator
-            eff_k = 0  # Negligible contribution of shorted end to coupling capacitance
-            Cp_factor = 2 # Should be 1 for single count of antinode capacitance??
+            L = (2 * wg.L * length) / (n * np.pi)**2
+        else:
+            L = (8 * wg.L * length) / ((2 * n - 1) * np.pi)**2
 
-        C_k = eff_k*Ck + Cg
-        # For large coupling capacitances, iteratively solve for frequency
-        # Start with weak coupling approximation
-        
-        L = (2 * wg.L * length / (n * 2 * np.pi) ** 2) * length_f
-        C = (wg.C_m * length / 2 * length_f + C_k*Cp_factor)
-        f0_guess = 1 / (2 * np.pi * np.sqrt(
-            L * C
-        ))
+        f0_guess = 1 / (2 * np.pi * np.sqrt(L * C))
 
-        # For small coupling capacitances, use simple approximation
-        if C_k < 1e-15:  # Less than 1 fF
-            Warning("Using weak coupling approximation for resonator frequency.")
+        # Use simple approximation for very weak coupling
+        if C_k < 1e-15:  
+            warnings.warn("Using weak coupling approximation for resonator frequency.")
             return cls(frequency=f0_guess, **kwargs)
-        
-        # Iterative solution for frequency-dependent Cp
+
+        # Iterative solver for strong coupling cases
         max_iterations = 50
-        tolerance = 1e-7  # Relative frequency tolerance
-        
+        tolerance = 1e-7 
+
         for iteration in range(max_iterations):
-            wn = 2 * np.pi * f0_guess
-            
-            # Calculate frequency-dependent Cp (Wallraff Eq. 15)
+            wn = 2 * np.pi * f0_guess * n
             Cp = C_k / (1 + wn**2 * C_k**2 * R_L**2)
             
-            # Calculate new frequency with corrected Cp
-            C = (wg.C_m * length * length_f)  / 2 + Cp * Cp_factor
-            L = (2 * wg.L * length / (n * 2 * np.pi) ** 2) * length_f
-            f0_new = 1 / (2 * np.pi * np.sqrt(L * C)) 
+            C = (wg.C_m * length) / 2.0 + Cp * Cp_factor
             
-            # Check for convergence
+            f0_new = 1 / (2 * np.pi * np.sqrt(L * C))
             relative_error = abs(f0_new - f0_guess) / f0_guess
+            
             if relative_error < tolerance:
                 break
             f0_guess = f0_new
             
         if iteration == max_iterations - 1:
-            import warnings
             warnings.warn(f"Frequency iteration did not converge after {max_iterations} iterations. "
-                         f"Final relative error: {relative_error:.2e}")
+                          f"Final relative error: {relative_error:.2e}")
         
-        # Create instance and set length as instance attribute
         return cls(frequency=f0_new, **kwargs)
     
     @classmethod
     def from_length_exact(cls, length: float, **kwargs):
         """
-        Create a resonator from a given length using exact root finding.
-        
-        Solves the implicit equation for frequency accounting for the full
-        frequency dependence of Cp using scipy.optimize.fsolve.
-        This is more robust than the iterative method for strongly coupled cases.
-        
-        Parameters
-        ----------
-        length : float
-            Physical length of the resonator in m
-        **kwargs
-            Additional parameters passed to __init__
+        Create a resonator from a given length using scipy.optimize.fsolve to
+        robustly handle implicit frequency dependence of Cp.
         """
-        from scipy.optimize import fsolve
-        
         wg = kwargs.get("wg", cpw(11.45, 550, 15, 7.5, 0.2))
-        length_f = kwargs.get("length_f", 2) 
+        length_f = kwargs.get("length_f", 2)
         n = kwargs.get("n", 1)
         Ck = kwargs.get("Ck", 0.0)
         Cg = kwargs.get("Cg", 0.0)
         R_L = kwargs.get("R_L", 50.0)
-        
+
+        Cp_factor = 2 if length_f in [1, 2] else 1
         C_coupling = Ck + Cg
-        
-        # For small coupling capacitances, use simple calculation
-        if C_coupling < 1e-15:  # Less than 1 fF
-            Cp = C_coupling
-            C = wg.C_m * length * length_f / 2 + Cp
-            L = 2 * wg.L * length * length_f / (n * np.pi) ** 2
-            f0 = 1 / (2 * np.pi * np.sqrt(L * C))
+
+        def _L(length):
+            if length_f in [1, 2]:
+                return (2 * wg.L * length) / (n * np.pi) ** 2
+            return (8 * wg.L * length) / ((2 * n - 1) * np.pi) ** 2
+
+        # Fast path for weak coupling
+        if C_coupling < 1e-15:  
+            C = wg.C_m * length / 2
+            f0 = 1 / (2 * np.pi * np.sqrt(_L(length) * C))
             return cls(frequency=f0, **kwargs)
-        
+
         def frequency_equation(f0):
-            """
-            Implicit equation: f0 = 1/(2π√LC) where C depends on f0 through Cp.
-            Returns zero when the equation is satisfied.
-            """
             wn = 2 * np.pi * f0 * n
             Cp = C_coupling / (1 + wn**2 * C_coupling**2 * R_L**2)
-            
-            C = wg.C_m * length * length_f / 2 + 2 * Cp
-            L = 2 * wg.L * length * length_f / (n * np.pi) ** 2
-            
-            f0_calculated = 1 / (2 * np.pi * np.sqrt(L * C))
+            C = wg.C_m * length / 2 + Cp * Cp_factor
+            f0_calculated = 1 / (2 * np.pi * np.sqrt(_L(length) * C))
             return f0 - f0_calculated
-        
-        # Initial guess using weak coupling approximation
+
+        # Seed the solver with the weak-coupling approximation
         f0_guess = 1 / (2 * np.pi * np.sqrt(
-            (2 * wg.L * length * length_f / (n * np.pi) ** 2) * 
-            (wg.C_m * length * length_f / 2 + C_coupling)
+            _L(length) * (wg.C_m * length / 2 + C_coupling * Cp_factor)
         ))
-        
-        # Solve the implicit equation
+
         try:
             f0_solution = fsolve(frequency_equation, f0_guess, xtol=1e-12)[0]
         except Exception as e:
-            import warnings
             warnings.warn(f"Root finding failed: {e}. Using iterative method as fallback.")
             return cls.from_length(length, **kwargs)
         
-        # Create instance
         return cls(frequency=f0_solution, **kwargs)
         
     @classmethod
     def coupling_strength_parameter(cls, Ck: float, Cg: float, frequency: float, R_L: float = 50.0):
-        """
-        Calculate the coupling strength parameter ωC_coupling*R_L.
-        
-        This parameter determines whether the weak coupling approximation is valid:
-        - << 1: Weak coupling, simple Cp ≈ Ck + Cg approximation is accurate
-        - >> 1: Strong coupling, frequency-dependent Cp calculation needed
-        
-        Parameters
-        ----------
-        Ck : float
-            Coupling capacitance to feedline in F
-        Cg : float
-            Coupling capacitance to ground in F  
-        frequency : float
-            Frequency in Hz
-        R_L : float, default=50.0
-            Load resistance in Ohms
-            
-        Returns
-        -------
-        float
-            Coupling strength parameter ωC_total*R_L
-        """
+        """Calculate the coupling strength parameter ωC_coupling*R_L."""
         C_coupling = Ck + Cg
         omega = 2 * np.pi * frequency
         return omega * C_coupling * R_L
     
     @classmethod
     def quarter_wave(cls, frequency: float, **kwargs):
-        """
-        Create a quarter-wavelength resonator at the specified frequency.
-        
-        Parameters
-        ----------
-        frequency : float
-            Target resonance frequency in Hz
-        **kwargs
-            Additional parameters passed to __init__
-        """
+        """Create a quarter-wavelength resonator at the specified frequency."""
         kwargs['length_f'] = 4
         return cls(frequency=frequency, **kwargs)
     
     @classmethod
     def half_wave(cls, frequency: float, **kwargs):
-        """
-        Create a half-wavelength resonator at the specified frequency.
-
-        Parameters
-        ----------
-        frequency : float
-            Target resonance frequency in Hz
-        **kwargs
-            Additional parameters passed to __init__
-        """
+        """Create a half-wavelength resonator at the specified frequency."""
         kwargs['length_f'] = 2
         return cls(frequency=frequency, **kwargs)
 
     @classmethod
     def from_energies(cls, E_c: float, E_l: float, **kwargs):
         r"""
-        Create a resonator from its characteristic energies E_C and E_L.
+        Create a resonator explicitly defined by characteristic energies E_C and E_L.
 
-        The target resonance frequency is computed from the harmonic
-        LC-oscillator relation
-
-        .. math::
-
-            f_0 = \sqrt{8\,E_C\,E_L}
-
-        matching the transmon/fluxonium plasma-frequency convention used
-        elsewhere in qfoundry, with :math:`E_C`, :math:`E_L` given in Hz
-        (i.e. already divided by h). The physical length (and hence L, C)
-        is then solved for as usual so that the resulting resonator
-        resonates at that frequency.
-
-        Parameters
-        ----------
-        E_c : float
-            Resonator charging energy :math:`E_C/h` in Hz.
-        E_l : float
-            Resonator inductive energy :math:`E_L/h` in Hz.
-        **kwargs
-            Additional parameters passed to __init__ (e.g. wg, length_f, n,
-            Cg, Ck, R_L). If ``wg`` is not given, a default CPW waveguide is
-            used.
-
-        Returns
-        -------
-        cpw_resonator
+        The physical length is solved using f0 = \sqrt{8\,E_C\,E_L} to preserve
+        methods requiring a spatial dimension. The effective L and C properties
+        are then forcibly overridden to exactly match the requested E_c and E_l,
+        which is necessary for downstream capacitive coupling strength calculations.
         """
+        from qfoundry.utils import E_to_C, E_to_L
+
         kwargs.setdefault("wg", cpw(11.45, 550, 15, 7.5, 0.2))
         frequency = np.sqrt(8.0 * E_c * E_l)
-        return cls(frequency=frequency, **kwargs)
+        resonator = cls(frequency=frequency, **kwargs)
+
+        # Explicitly override the geometric derivations to enforce the exact
+        # E_c / E_l split requested by the user.
+        resonator._C_ = E_to_C(E_c)
+        resonator._L_ = E_to_L(E_l)
+        return resonator
 
     @classmethod
     def from_frequency(cls, frequency: float, **kwargs):
-        """
-        Create a resonator directly from a target resonance frequency.
-
-        Unlike :meth:`from_energies`, this doesn't require E_C/E_L to be
-        specified — the physical length (and hence L, C, and by extension
-        E_C, E_L) is solved for from the default/given CPW geometry alone,
-        matching the plain constructor's ``frequency`` parameter but with
-        the same default-waveguide convenience as ``from_energies``.
-
-        Parameters
-        ----------
-        frequency : float
-            Target resonance frequency in Hz.
-        **kwargs
-            Additional parameters passed to __init__ (e.g. wg, length_f, n,
-            Cg, Ck, R_L). If ``wg`` is not given, a default CPW waveguide is
-            used.
-
-        Returns
-        -------
-        cpw_resonator
-        """
+        """Create a resonator directly from a target resonance frequency."""
         kwargs.setdefault("wg", cpw(11.45, 550, 15, 7.5, 0.2))
         return cls(frequency=frequency, **kwargs)
 
     @classmethod
     def design_for_coupling(cls, frequency: float, Q_ext_target: float, **kwargs):
-        """
-        Design a resonator with specified external Q factor.
-        
-        Parameters
-        ----------
-        frequency : float
-            Target resonance frequency in Hz
-        Q_ext_target : float
-            Target external quality factor
-        **kwargs
-            Additional parameters passed to __init__
-            
-        Returns
-        -------
-        cpw_resonator
-            Resonator with coupling capacitance set to achieve target Q_ext
-        """
-        # Create initial resonator to get Z_0
+        """Design a resonator with a specific external Q factor by solving for Ck."""
         temp_resonator = cls(frequency=frequency, **kwargs)
-        
-        # Calculate required coupling capacitance for target Q_ext
-        # From Q_ext = π/(4*(Z₀*ω*C_k)²)
         omega = 2 * np.pi * frequency
         C_k_required = np.sqrt(np.pi / (4 * Q_ext_target)) / (temp_resonator.wg.Z_0 * omega)
         
@@ -440,25 +286,28 @@ class cpw_resonator(circuit):
         return cls(frequency=frequency, **kwargs)
 
     def _get_length_(self, f0, Cp: float = 0.0, n: int = 1):
-        from scipy.constants import c as c0
-        # Solve quadratic equation for length when Cp is significant
+        """
+        Solves ω_n^2 * L(l) * C(l) = 1 for the physical length l.
+        Matches the exact lumped L and C formulations used in __init__ to 
+        guarantee consistency across all geometry types.
+        """
         wg = self.wg
 
         def solve_quad(a, b, c):
-            return (-b + np.sqrt(b**2 - 4 * a * c)) / (2 * a), (
-                -b - np.sqrt(b**2 - 4 * a * c)
-            ) / (2 * a)
+            discriminant = np.sqrt(b**2 - 4 * a * c)
+            return (-b + discriminant) / (2 * a), (-b - discriminant) / (2 * a)
 
-        # If Cg + Ck == 0, the length is calculated using only the cpw
-        if Cp > 1e-20:
-            C_l = wg.C_m
-            L_l = wg.L
-            wn = 2 * np.pi * f0 * n # Angular frequency of the resonator mode
-            Ls = 2 * L_l / (2 * self.n * np.pi) ** 2
-            l1, l2 = solve_quad(C_l/2 * Ls * wn**2, Ls * Cp * wn**2, -1)
-            return max(l1, l2)
+        C_l = wg.C_m
+        L_l = wg.L
+        wn = 2 * np.pi * f0 * n 
+        
+        if self.length_f in [1, 2]:
+            Ls = 2 * L_l / (self.n * np.pi) ** 2
         else:
-            return ((c0) / (f0 * n * (wg.epsilon_ek**0.5)))
+            Ls = 8 * L_l / ((2 * self.n - 1) * np.pi) ** 2
+            
+        l1, l2 = solve_quad(C_l/2 * Ls * wn**2, Ls * Cp * wn**2, -1)
+        return max(l1, l2) * self.length_f
 
     def Z_TL(self, f: np.array):
         fn = self.w0() / (2 * np.pi)
@@ -469,18 +318,14 @@ class cpw_resonator(circuit):
         return self._Zp_(f, self.length_f)
 
     def Z(self, f):
-        """
-        frequency domain numeric transfer function (impedance), this overload the class:circuits impedance.
-        """
-        return self.Z_TL(f)  # Overload this function from the circuit class
+        """Frequency domain numeric transfer function (impedance)."""
+        return self.Z_TL(f) 
 
     def w0(self):
         return 2 * np.pi * self.f0()
 
     def f0(self):
-        return (
-            self._f0_()
-        )  # __f0__() calculates the fundamental LC resonance of the RCL circuit
+        return self._f0_() 
 
     def f01(self):
         return self._f0_()
@@ -489,62 +334,35 @@ class cpw_resonator(circuit):
         return self.f0() / self.Q()
 
     def kappa_ext(self, Cin=None, Z_L: float = None):
-        """
-        External coupling rate (FWHM) due to coupling capacitance.
-        κ_ext = (ω₀*C_k)²*Z_L / C
-        """
+        """External coupling rate (FWHM) due to coupling capacitance."""
         if Z_L is None:
             Z_L = self.wg.Z_0k or 50.0
         if Cin is None:
             Cin = self.Ck
             
-        kappa_ = (self.w0()*Cin)**2*Z_L / (self.C())
+        kappa_ = (self.w0()*Cin)**2*Z_L / self.C()
         return kappa_ / (2 * np.pi)
 
     def Q_ext(self, Cin=None):
-        """
-        External quality factor due to coupling capacitance.
-        
-        Q_ext = π/(4*(Z₀*ω*C_k)²)
-        """
-        if Cin == None:
+        """External quality factor due to coupling capacitance."""
+        if Cin is None:
             Cin = self.Ck
         return np.pi / (4 * (self.wg.Z_0 * 2 * np.pi * self.f0() * Cin) ** 2)
-        # return (1+(wr*C_k*R_L)**2)*(C+C_k))/(wr*C_k**2*R_L)  R_L=50 Ohm
 
     def Q_int(self):
-        """
-        Internal quality factor due to material losses.
-        
-        Q_int = ω₀*L/R_s where R_s is the equivalent series resistance
-        """
+        """Internal quality factor due to material losses."""
         return self.w0() * self.L() / self._R_
     
     def Q_total(self, Cin=None):
-        """
-        Total quality factor: 1/Q_total = 1/Q_int + 1/Q_ext
-        
-        This is the loaded quality factor measured in experiments.
-        """
+        """Loaded quality factor combining internal and external Q."""
         return 1 / (1/self.Q_int() + 1/self.Q_ext(Cin))
     
     def coupling_strength(self, Cin=None):
-        """
-        Coupling strength parameter g = Q_int/Q_ext.
-        
-        g << 1: undercoupled, g >> 1: overcoupled, g ≈ 1: critically coupled
-        """
+        """Ratio of internal to external Q (g = Q_int/Q_ext)."""
         return self.Q_int() / self.Q_ext(Cin)
     
     def transmission_coefficient(self, f, Cin=None):
-        """
-        Transmission coefficient |S₂₁|² for a side-coupled resonator.
-        
-        For a resonator side-coupled to a transmission line, the transmission
-        depends on the coupling strength and frequency detuning.
-        Standard form: |S₂₁|² = |1 - (κ_ext/2)/(iΔ + κ_total/2)|²
-        where Δ = f - f₀ and κ_total = κ_int + κ_ext.
-        """
+        """Transmission coefficient |S₂₁|² for a side-coupled resonator."""
         if Cin is None:
             Cin = self.Ck
         g = self.coupling_strength(Cin)
@@ -554,236 +372,71 @@ class cpw_resonator(circuit):
         return g**2 / ((1 + g)**2 + (2 * Q_tot * df_over_f0)**2)
     
     def photon_number(self, power_dBm):
-        """
-        Average photon number in the resonator for given input power.
-        
-        Parameters
-        ----------
-        power_dBm : float
-            Input power in dBm
-            
-        Returns
-        -------
-        float
-            Average photon number ⟨n⟩
-            
-        Notes
-        -----
-        For a driven resonator, the steady-state photon number depends on
-        input power, coupling strength, and internal losses. The exact
-        relationship depends on the driving configuration and impedance matching.
-        ⟨n⟩ = P_in * Q_ext / (ℏω₀ * κ_ext) for on-resonance driving.
-        """
-        power_watts = 10**(power_dBm/10 - 3)  # Convert dBm to watts
+        """Average photon number in the resonator for a given input power."""
+        power_watts = 10**(power_dBm/10 - 3) 
         hbar_omega = hbar * self.w0()
-        kappa_ext = self.kappa_ext()
-        
-        return power_watts * self.Q_ext() / (hbar_omega * kappa_ext)
+        return power_watts * self.Q_ext() / (hbar_omega * self.kappa_ext())
     
     def electric_field_rms(self, photon_number=1):
-        """
-        RMS electric field in the resonator for given photon number.
-        
-        Parameters
-        ----------
-        photon_number : float, default=1
-            Number of photons in the resonator
-            
-        Returns
-        -------
-        float
-            RMS electric field in V/m
-            
-        Notes
-        -----
-        Uses the relation E_rms = √(ℏω₀/(2ε₀V_eff)) * √n where V_eff is the
-        effective mode volume. For a CPW resonator, V_eff ≈ A_eff * length
-        where A_eff is the effective cross-sectional area.
-        """
-        # Effective area for CPW (approximate)
-        A_eff = (self.wg.w + 2*self.wg.s) * self.wg.h  # Cross-sectional area
-        V_eff = A_eff * self.length * self.length_f  # Effective mode volume
+        """RMS electric field in the resonator for a given photon number."""
+        A_eff = (self.wg.w + 2*self.wg.s) * self.wg.h 
+        V_eff = A_eff * self.length * self.length_f 
         
         energy_per_photon = hbar * self.w0()
         energy_density = photon_number * energy_per_photon / V_eff
         
-        # E_rms = √(2*U_E/(ε₀*ε_eff*V)) where U_E is electric energy
         return np.sqrt(2 * energy_density / (epsilon_0 * self.wg.epsilon_e))
     
     def participation_ratio(self, junction_area, gap_distance):
-        """
-        Calculate the participation ratio for a Josephson junction directly connected to the resonator in a gap.
-        
-        Parameters
-        ----------
-        junction_area : float
-            Area of the Josephson junction in m²
-        gap_distance : float
-            Gap distance of the junction in m
-            
-        Returns
-        -------
-        float
-            Participation ratio p_j
-            
-        Notes
-        -----
-        The participation ratio quantifies how much of the resonator's electric
-        field energy is concentrated in the junction. This is commonly defined as:
-        p_j = U_j / U_total where U_j is the electric energy in the junction
-        and U_total is the total electric energy stored in the resonator.
-        
-        See: Nigg et al. (2012) Phys. Rev. Lett. 108, 240502 for transmon theory
-        and Krantz et al. (2019) Appl. Phys. Rev. 6, 021318 for review.
-        """
-        # Electric field in the junction (simplified as uniform field)
-        E_junction = self.electric_field_rms() * 2  # Factor of 2 for field enhancement
-        
-        # Electric energy in the junction
+        """Calculate the participation ratio for a Josephson junction in the gap."""
+        E_junction = self.electric_field_rms() * 2 
         U_junction = 0.5 * epsilon_0 * self.wg.epsilon_e * E_junction**2 * junction_area * gap_distance
-        
-        # Total electric energy in resonator
         U_total = 0.5 * self.C() * (self.electric_field_rms() * gap_distance)**2
         
         return U_junction / U_total
     
     def dispersive_shift(self, alpha_qubit, participation_ratio):
-        """
-        Calculate the dispersive shift χ for qubit-resonator coupling.
-        
-        Parameters
-        ----------
-        alpha_qubit : float
-            Qubit anharmonicity in Hz (negative for transmon)
-        participation_ratio : float
-            Participation ratio of the qubit junction
-            
-        Returns
-        -------
-        float
-            Dispersive shift χ in Hz
-            
-        Notes
-        -----
-        In the dispersive regime, the shift is approximately:
-        χ ≈ g²/Δ where g is the coupling strength and Δ is the detuning.
-        For transmons, this can also be written in terms of participation ratio.
-        
-        See: Koch et al. (2007) Phys. Rev. A 76, 042319 for transmon theory
-        and Blais et al. (2004) Phys. Rev. A 69, 062320 for dispersive coupling.
-        """
-        # Charging energy from participation ratio (simplified)
-        E_c = e**2 / (2 * self.C())  # Charging energy in Joules
-        
+        """Calculate the dispersive shift χ using the participation ratio."""
+        E_c = e**2 / (2 * self.C()) 
         return alpha_qubit * participation_ratio * (E_c / (hbar * self.w0()))
     
     def purcell_rate(self, qubit_frequency, coupling_strength):
-        """
-        Calculate the Purcell decay rate for a qubit coupled to the resonator.
-        
-        Parameters
-        ----------
-        qubit_frequency : float
-            Qubit transition frequency in Hz
-        coupling_strength : float
-            Qubit-resonator coupling strength g in Hz
-            
-        Returns
-        -------
-        float
-            Purcell decay rate in Hz
-            
-        Notes
-        -----
-        The Purcell effect enhances spontaneous emission into the resonator mode.
-        Γ_Purcell = (g²/Δ²) * κ where g is coupling, Δ is detuning, κ is decay rate.
-        
-        See: Purcell (1946) Phys. Rev. 69, 37 for original theory
-        and Houck et al. (2007) Nature 449, 328 for circuit QED implementation.
-        """
+        """Calculate the Purcell decay rate for a coupled qubit."""
         detuning = abs(qubit_frequency - self.f0())
         if detuning == 0:
             raise ValueError("Qubit and resonator cannot be exactly on resonance")
-            
-        return coupling_strength**2 * self.kappa_ext() / detuning**2
+
+        return coupling_strength**2 * self.kappa() / detuning**2
     
     def V_zpf(self):
-        r"""Zero-point voltage fluctuation of the resonator (V).
-
-        For a lumped-element LC resonator the voltage ZPF amplitude is:
-
-        .. math::
-
-            V_\mathrm{zpf} = \sqrt{\frac{\hbar\,\omega_0}{2\,C}}
-
-
-        Returns
-        -------
-        float
-            :math:`V_\mathrm{zpf}\` in Volts.
-
-        References
-        ----------
-        Wallraff et al. (2004) Nature 431, 162 — Eq. (1);
-        Krantz et al. (2019) Appl. Phys. Rev. 6, 021318 — Eq. (17).
-        """
+        r"""Zero-point voltage fluctuation of the resonator."""
         return np.sqrt(hbar * self.w0() / (2 * self.C()))
     
     def V_rms(self, photon_number=0):
-        """
-        RMS voltage for a given photon number.
-        
-        Parameters
-        ----------
-        photon_number : float, default=1
-            Photon occupation number n
-
-        Returns
-        -------
-        float
-            RMS voltage in Volts.
-        """
+        """RMS voltage scaling for a given photon number."""
         quantum_scaling = np.sqrt(2 * photon_number + 1)
         return self.V_zpf() * quantum_scaling
 
     def critical_photon_number(self, critical_current):
-        """
-        Estimate the critical photon number for onset of nonlinearity.
-        
-        Parameters
-        ----------
-        critical_current : float
-            Critical current of any Josephson junctions in the circuit in A
-            
-        Returns
-        -------
-        float
-            Critical photon number n_crit
-            
-        Notes
-        -----
-        This estimates when the RF current approaches the critical current,
-        marking the onset of strong nonlinearity. Uses I_rms = ω₀ * C * V_RMS.
-
-        Note: A resdonator does not have a critical current itself, but this can be used to estimate the
-        photon number at which a junction with given critical current would become nonlinear when connected to the resonator.
-        """
-        # rms current for one photon
+        """Estimate the photon number where a connected junction becomes nonlinear."""
         I_rms_one_photon = self.w0() * self.C() * self.V_rms(photon_number=1)
-        
         return (critical_current / (np.sqrt(2) * I_rms_one_photon))**2
     
     def fwhm(self, Cin=None):
-        if Cin == None:
+        if Cin is None:
             Cin = self.Ck
         return self.f0() / self.Q_ext(Cin=Cin)
 
     def C(self):
-        """Return the total capacitance of the resonator."""
+        """Return the effective lumped capacitance of the resonator mode."""
         return self._C_
+        
+    def C_physical(self):
+        """Return the total physical distributed capacitance of the CPW trace."""
+        return self.wg.C_m * self.length
 
     def L(self):
-        """Return the total inductance of the resonator."""
+        """Return the effective lumped inductance of the resonator mode."""
         return self._L_
     
     def __str__(self):
@@ -809,27 +462,3 @@ class cpw_resonator(circuit):
                 self.length * 1e3,
             )
         )
-        
-
-# References with specific equation numbers and accurate citations:
-#
-# [1] Ghione (1984), doi: 10.1049/el:19840120
-#     - Elliptic integral formulation for CPW impedance and capacitance
-#
-# [2] Watanabe (1994), doi: 10.1143/JJAP.33.5708  
-#     - CPW effective permittivity calculations
-#
-# [3] Wallraff et al. (2008), arXiv:0807.4094
-#     - Eq. (11): Resonator inductance L = 2*L_l*l/(n*π)²
-#     - Eq. (12): Resonator capacitance C = C_l*l/2 + C_c  
-#     - Eq. (15): Coupling capacitance C_p = C_k/(1 + (ω*C_k*R_L)²)
-#     - General theory of CPW resonators and quality factors
-#
-# Additional key references for quantum circuit theory:
-# - Koch et al. (2007) Phys. Rev. A 76, 042319 - Transmon qubit theory
-# - Blais et al. (2004) Phys. Rev. A 69, 062320 - Circuit QED theory  
-# - Nigg et al. (2012) Phys. Rev. Lett. 108, 240502 - Participation ratio
-# - Krantz et al. (2019) Appl. Phys. Rev. 6, 021318 - Comprehensive review
-# - Houck et al. (2007) Nature 449, 328 - Circuit QED experiments
-# - Purcell (1946) Phys. Rev. 69, 37 - Original Purcell effect theory
-#

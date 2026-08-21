@@ -76,7 +76,7 @@ class qubit(ABC):
 
         .. math::
 
-            E_J/h = \frac{I_c}{4 \, \pi \, e} = \frac{I_c}{2\, e}
+            E_J/h = \frac{I_c}{4 \, \pi \, e}
 
         References
         ----------
@@ -105,10 +105,11 @@ class qubit(ABC):
 
         .. math::
 
-            E_L/h = \frac{h}{8 \, e^2 \, L}
+            E_L/h = \frac{h}{16\,\pi^2 \, e^2 \, L}
 
-        where :math:`L` is the inductance.  Returns 0 by default (no geometric
-        inductance); subclasses may override.
+        where :math:`L` is the inductance (equivalently :math:`\hbar^2/(4e^2Lh)`,
+        matching :func:`qfoundry.utils.L_to_E`).  Returns 0 by default (no
+        geometric inductance); subclasses may override.
         """
         return 0
 
@@ -515,17 +516,19 @@ class transmon(qubit, circuit):
     def g_j(self,j):
         """
         Coupling sytrength between states j and j+1
+
+        Normalised so that g_j(0) == g01() == g().
         """
         if self.C_g is None:
             # Scale g01 by the ratio of charge matrix elements
-            return self.g() / 2 * self.nj(j) / self.n01()
+            return self.g() * self.nj(j) / self.n01()
 
         nj = self.nj(j)
 
         beta    = self.C_g / self.C() # Participation ratio
         V_zpf    = self.res_ro.V_zpf() # Resonator zero-point voltage fluctuation
 
-        g_j = beta * V_zpf * nj * e_0/h_0
+        g_j = 2 * beta * V_zpf * nj * e_0/h_0
         return g_j
     
     def g01(self):
@@ -592,9 +595,12 @@ class transmon(qubit, circuit):
     def chi(self):
         """
         Dispersive shift
+        chi = g^2 * alpha / (Delta * (Delta + alpha)), Delta = f01 - f_r (signed)
         https://arxiv.org/pdf/1904.06560 eq. 146
         """
-        return -(self.g01() ** 2) / (self.delta()) * (1 / (1 + self.delta() / self.alpha()))
+        Delta = self.delta()
+        alpha = self.alpha()
+        return (self.g01() ** 2) * alpha / (Delta * (Delta + alpha))
 
     def E_m(self, m):
         """
@@ -663,16 +669,18 @@ class transmon(qubit, circuit):
     
     def delta(self):
         """
-        Frequency detuning
+        Frequency detuning, qubit minus resonator (signed, Hz).
+        Delta = f01 - f_r
         """
-        return abs(self.res_ro.f0() - self.f01())
+        return self.f01() - self.res_ro.f0()
 
     def T1_max(self):
         """
-        Higher bound of T1 (Purcell limit)
+        Higher bound of T1 (Purcell limit), using the resonator's total
+        linewidth kappa = kappa_ext + kappa_int.
         https://arxiv.org/pdf/cond-mat/0703002 eq 4.7
         """
-        return (self.delta() / self.g01()) ** 2 / (self.res_ro.kappa_ext())
+        return (self.delta() / self.g01()) ** 2 / (self.res_ro.kappa())
     
     def T1_drive(self, Z0=50):
         """
@@ -732,7 +740,7 @@ class transmon(qubit, circuit):
         """
         from numpy.linalg import LinAlgError
 
-        eps_m = (-1)**m * self.Ec() * (2**(4*m+5) / factorial(m)) * sqrt(2/pi) * (self.Ej()/(8*self.Ec()))**(m/2 + 3/4) * exp(-sqrt(8*self.Ej()/self.Ec())) # Analytical approximation for charge dispersion, valid in the transmon regime (EJ/EC >> 1)
+        eps_m = (-1)**m * self.Ec() * (2**(4*m+5) / factorial(m)) * sqrt(2/pi) * (self.Ej()/(2*self.Ec()))**(m/2 + 3/4) * exp(-sqrt(8*self.Ej()/self.Ec())) # Analytical approximation for charge dispersion, valid in the transmon regime (EJ/EC >> 1); Koch2007 Eq. 2.18
         if self.qmodel is not None:
             try:
                 spectrum = self.qmodel.get_spectrum_vs_paramvals(param_name = "ng",  param_vals = [0, 0.5])

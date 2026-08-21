@@ -358,10 +358,10 @@ class edge(ABC):
 
         .. math::
 
-            \nu = \frac{g}{\Delta_{01} + \alpha_0}
+            \nu = -\frac{g}{\Delta_{01} + \alpha_0}
 
-        where :math:`\Delta_{01} = f_0 - f_1` (Hz) and :math:`\alpha_1` is
-        the anharmonicity of the *target* qubit.  The full IX rate under a
+        where :math:`\Delta_{01} = f_0 - f_1` (Hz) and :math:`\alpha_0` is
+        the anharmonicity of the *control* qubit (q0).  The full IX rate under a
         drive of amplitude :math:`\Omega` (rad s⁻¹) is :math:`\nu \cdot \Omega`.
 
         The sign (and magnitude) depends on the control/target assignment:
@@ -383,14 +383,16 @@ class edge(ABC):
     def mu(self) -> float:
         r"""Bare ZX coupling coefficient :math:`\mu` (Hz per rad s⁻¹ of drive).
 
-        Second-order contribution to the ZX interaction in the CR frame:
+        Leading-order contribution to the ZX interaction in the CR frame:
 
         .. math::
 
-            \mu = \frac{g \, \alpha_0}{\Delta_{01} \, (\Delta_{01} + \alpha_0)}
+            \mu = -\frac{g \, \alpha_0}{\Delta_{01} \, (\Delta_{01} + \alpha_0)}
 
-        where :math:`\alpha_0` is the anharmonicity of the *target* qubit.
+        where :math:`\alpha_0` is the anharmonicity of the *control* qubit (q0).
         The full ZX rate under a drive :math:`\Omega` is :math:`\mu \cdot \Omega`.
+        (Dimensionless, like :meth:`nu`: :math:`\mu \cdot \Omega` has units of
+        :math:`\Omega`, i.e. a rate.)
 
         References
         ----------
@@ -404,7 +406,7 @@ class edge(ABC):
         if Delta == 0.0:
             raise ValueError("mu() is singular for degenerate qubits (Δ = 0).")
 
-        return -g_hz*a0 / Delta / (Delta * (Delta + a0))
+        return -g_hz*a0 / (Delta * (Delta + a0))
 
     def nu_driven(self, Omega: float) -> float:
         r"""IX interaction rate under a CR drive of amplitude :math:`\Omega`.
@@ -909,17 +911,18 @@ class bus_resonator_coupler(edge):
         References
         ----------
         [Majer2007] Nature 449, 443; [Blais2021] Eq. (6.2).
+        [ManentiMotta2023] Eq. (14.76)
         """
         g_0r = self._g0r()
         g_1r = self._g1r()
         f_r  = self.resonator.f0()
-        Delta_0r = self.q0.f01() - f_r   # Hz
-        Delta_1r = self.q1.f01() - f_r   # Hz
+        delta_0 = self.q0.f01() - f_r   # Hz
+        delta_1 = self.q1.f01() - f_r   # Hz
 
-        if Delta_0r == 0.0 or Delta_1r == 0.0:
+        if delta_0 == 0.0 or delta_1 == 0.0:
             raise ValueError("g() is singular when a qubit is resonant with the bus.")
 
-        return 0.5 * g_0r * g_1r * (1.0 / Delta_0r + 1.0 / Delta_1r)
+        return 0.5 * g_0r * g_1r * (1.0 / delta_0 + 1.0 / delta_1)
 
     def J(self) -> float:
         return self.g()  # alias for consistency with Blais2021 notation

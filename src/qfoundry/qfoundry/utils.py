@@ -62,8 +62,8 @@ def Cs_to_E(C):
 
 def E_to_C(E):
     """
-    Convert energy to capacitance.
-    E = e^2/(2*C) => C = e^2/(2*E)
+    Convert charging energy E_C/h (Hz) to capacitance (F). Inverse of Cs_to_E.
+    E_C/h = e^2/(2*C*h) => C = e^2/(2*(E_C/h)*h)
     """
     return e_0**2 / (2 * E) / h
 
