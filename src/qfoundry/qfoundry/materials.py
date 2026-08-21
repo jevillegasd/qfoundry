@@ -23,6 +23,13 @@ Al_density = 2.7e3  # kg/m^3
 n_Al = Avogadro * Al_density / Al_mass  # atoms / m^3
 mu_0 = 4 * np.pi * 1e-7  # H/m
 
+Nb_mass = 92.906e-3  # kg/mol
+Nb_density = 8.57e3  # kg/m^3
+n_Nb = Avogadro * Nb_density / Nb_mass  # atoms / m^3
+
+Ta_mass = 180.95e-3  # kg/mol
+Ta_density = 16.69e3  # kg/m^3
+n_Ta = Avogadro * Ta_density / Ta_mass  # atoms / m^
 
 class sc_metal:
     """
@@ -96,3 +103,68 @@ class sc_metal:
             f"lambda_L = {self.london_penetration_depth()*1e9:3.1f} nm, "
             f"xi_0 = {self.coherence_length()*1e9:3.1f} nm"
         )
+
+
+class sc_stack(sc_metal):
+    r"""
+    Effective superconducting material for a thin-film stack (bilayer or
+    multilayer), combining constituent films via a simplified proximity-
+    effect model.
+
+    Parameters
+    ----------
+    layers : list of (sc_metal, float)
+        (material, thickness [m]) pairs, in stacking order. Each material's
+        own operating temperature is ignored; the stack's T (below) is used
+        throughout.
+    T : float, default=20e-3
+        Operating temperature of the stack, in K.
+
+    Attributes
+    ----------
+    thickness : float
+        Total stack thickness (sum of layer thicknesses), in m. Convenient
+        for passing straight to ``cpw(thickness=stack.thickness, ...)``.
+
+    Notes
+    -----
+    Assumes each film is thin compared to its coherence length, so a single
+    spatially-uniform effective order parameter describes the whole stack
+    (i.e. the "dirty limit" approximation). The effective Tc, rho and n_s
+    are calculated as weighted averages of the constituent layers, weighted by
+    their thicknesses and superconducting carrier densities. The effective
+    London penetration depth and coherence length are then derived from these
+    effective parameters.
+
+    References
+    ----------
+    - Cooper, Phys. Rev. Lett. 6, 689 (1961) - S-N proximity effect
+    - McMillan, Phys. Rev. 175, 537 (1968) - tunneling model for proximity bilayers
+    """
+
+    def __init__(self, layers, T: float = 20e-3):
+        if not layers:
+            raise ValueError("sc_stack requires at least one (material, thickness) layer.")
+
+        self.layers = list(layers)
+        thickness = sum(d for _, d in self.layers)
+        if thickness <= 0:
+            raise ValueError("sc_stack layer thicknesses must sum to a positive value.")
+
+        dos_weight = sum(d * m.n_s for m, d in self.layers)
+        Tc_eff = sum(d * m.n_s * m.Tc for m, d in self.layers) / dos_weight
+        n_s_eff = dos_weight / thickness
+        rho_eff = thickness / sum(d / m.rho for m, d in self.layers)
+
+        super().__init__(Tc=Tc_eff, T=T, rho=rho_eff, n_s=n_s_eff)
+        self.thickness = thickness
+
+    def __str__(self):
+        stack = " / ".join(f"{d*1e9:3.1f} nm (Tc={m.Tc:3.2f} K)" for m, d in self.layers)
+        return f"Superconducting stack [{stack}]: {super().__str__()}"
+
+
+mat_al = sc_metal(Tc=1.14, T=20e-3, rho=2.06e-9, n_s=3 * n_Al)
+mat_nb = sc_metal(Tc=9.2, T=20e-3, rho=1.5e-7, n_s=n_Nb)
+mat_ta = sc_metal(Tc=4.5, T=20e-3, rho=1.5e-7, n_s=n_Ta)
+mat_nb_ta = sc_stack([(mat_nb, 100e-9), (mat_ta, 10e-9)], T=20e-3)
