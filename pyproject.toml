@@ -23,7 +23,13 @@ dependencies = [
   "numpy>=1.23",
   "scipy>=1.10",
   "matplotlib>=3.7",
-  "scqubits<4.4", 
+  "scqubits<4.4",
+  # qutip>=5.3 changes Qobj's internal sparse-matrix conversion in a way that
+  # breaks scqubits 4.3.1's HilbertSpace.diag_hamiltonian() at degenerate
+  # eigenvalues (e.g. a tunable_transmon's symmetric SQUID sweetspot) with
+  # "TypeError: Unsupported operator type: csc_array". Pin below the break
+  # until scqubits ships a fix.
+  "qutip<5.3",
   "rustworkx>=0.13.0",
 ]
 
