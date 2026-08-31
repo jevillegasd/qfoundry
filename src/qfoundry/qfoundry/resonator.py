@@ -312,16 +312,24 @@ class cpw_resonator(circuit):
         return cls(frequency=frequency, **kwargs)
 
     @classmethod
-    def design_for_kappa_ext(cls, frequency: float, kappa_ext_target_hz: float, Z_L: float = None, **kwargs):
+    def design_for_kappa_ext(cls, frequency: float, kappa_ext_target_hz: float, Z_L: float = None,
+                             x_ratio: float = None, **kwargs):
         """Design a resonator with a specific external coupling rate (kappa_ext,
         Hz) by solving for Ck. Companion to design_for_coupling() (which targets
-        Q_ext — a different convention: wg.Z_0, no explicit Z_L)."""
+        Q_ext — a different convention: wg.Z_0, no explicit Z_L).
+
+        x_ratio: optional fractional coupler position x/L along the resonator.
+        When given, the required Ck is scaled up by 1/voltage_ratio(x_ratio)
+        so that the *effective* rate at that position hits the target."""
         from qfoundry.utils import kappa_ext_to_Ck
         kwargs.pop("Ck", None)
         temp_resonator = cls(frequency=frequency, **kwargs)
         if Z_L is None:
             Z_L = temp_resonator.wg.Z_0k or 50.0
-        kwargs['Ck'] = kappa_ext_to_Ck(frequency, kappa_ext_target_hz, temp_resonator.C(), Z_L)
+        Ck = kappa_ext_to_Ck(frequency, kappa_ext_target_hz, temp_resonator.C(), Z_L)
+        if x_ratio is not None:
+            Ck /= temp_resonator.voltage_ratio(x_ratio)
+        kwargs['Ck'] = Ck
         return cls(frequency=frequency, **kwargs)
 
     def _get_length_(self, f0, Cp: float = 0.0, n: int = 1):
@@ -372,15 +380,42 @@ class cpw_resonator(circuit):
     def kappa(self):
         return self.f0() / self.Q()
 
-    def kappa_ext(self, Cin=None, Z_L: float = None):
-        """External coupling rate (FWHM) due to coupling capacitance."""
+    def voltage_ratio(self, x_ratio: float) -> float:
+        """Normalised voltage amplitude |V(x)/V_max| at fractional position
+        x_ratio = x/L along the resonator.
+
+        For a quarter-wave resonator (length_f=4) x=0 is the shorted end and
+        x=L the open end, so V(x) ∝ sin((2n-1)·πx/2L). Half- and full-wave
+        resonators (length_f=2, 1) are open at both ends with V(x) a cosine,
+        antinodes at the ends. A coupler placed at x_ratio sees its coupling
+        rate scaled by voltage_ratio²  (Pozar/ Göppl et al. convention).
+        """
+        if not 0.0 <= x_ratio <= 1.0:
+            raise ValueError(f"x_ratio must be within [0, 1], got {x_ratio}")
+        if self.length_f == 4:
+            return abs(np.sin((2 * self.n - 1) * np.pi * x_ratio / 2))
+        # open-open resonators: full wavelength fits for length_f=1
+        periods = self.n * (2 if self.length_f == 1 else 1)
+        return abs(np.cos(periods * np.pi * x_ratio))
+
+    def kappa_ext(self, Cin=None, Z_L: float = None, x_ratio: float = None):
+        """External coupling rate (FWHM) due to coupling capacitance.
+
+        x_ratio: optional fractional position x/L of the coupler along the
+        resonator. When given, the rate is scaled by voltage_ratio(x_ratio)²
+        — e.g. sin²(πx/2L) for a fundamental quarter-wave resonator. When
+        None the coupler is assumed at a voltage antinode (maximum rate).
+        """
         from qfoundry.utils import Ck_to_kappa_ext
         if Z_L is None:
             Z_L = self.wg.Z_0k or 50.0
         if Cin is None:
             Cin = self.Ck
 
-        return Ck_to_kappa_ext(self.f0(), Cin, self.C(), Z_L)
+        kappa = Ck_to_kappa_ext(self.f0(), Cin, self.C(), Z_L)
+        if x_ratio is not None:
+            kappa *= self.voltage_ratio(x_ratio) ** 2
+        return kappa
 
     def Q_ext(self, Cin=None):
         """External quality factor due to coupling capacitance."""
