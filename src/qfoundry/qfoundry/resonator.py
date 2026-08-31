@@ -302,11 +302,17 @@ class cpw_resonator(circuit):
         return cls(frequency=frequency, **kwargs)
 
     @classmethod
-    def design_for_coupling(cls, frequency: float, Q_ext_target: float, **kwargs):
-        """Design a resonator with a specific external Q factor by solving for Ck."""
+    def design_for_coupling(cls, frequency: float, Q_ext_target: float, x_ratio: float = None, **kwargs):
+        """Design a resonator with a specific external Q factor by solving for Ck.
+
+        x_ratio: optional fractional coupler position x/L along the resonator.
+        When given, the required Ck is scaled up by 1/voltage_ratio(x_ratio)
+        so that the *effective* Q_ext at that position hits the target."""
         temp_resonator = cls(frequency=frequency, **kwargs)
         omega = 2 * np.pi * frequency
         C_k_required = np.sqrt(np.pi / (4 * Q_ext_target)) / (temp_resonator.wg.Z_0 * omega)
+        if x_ratio is not None:
+            C_k_required /= temp_resonator.voltage_ratio(x_ratio)
 
         kwargs['Ck'] = C_k_required
         return cls(frequency=frequency, **kwargs)
@@ -417,11 +423,21 @@ class cpw_resonator(circuit):
             kappa *= self.voltage_ratio(x_ratio) ** 2
         return kappa
 
-    def Q_ext(self, Cin=None):
-        """External quality factor due to coupling capacitance."""
+    def Q_ext(self, Cin=None, x_ratio: float = None):
+        """External quality factor due to coupling capacitance.
+
+        x_ratio: optional fractional position x/L of the coupler along the
+        resonator. The effective Q_ext grows as the coupler moves away from
+        a voltage antinode: Q_ext(x) = Q_ext_max / voltage_ratio(x_ratio)²
+        (the dual of kappa_ext's voltage_ratio² suppression). When None the
+        coupler is assumed at an antinode (minimum Q_ext).
+        """
         if Cin is None:
             Cin = self.Ck
-        return np.pi / (4 * (self.wg.Z_0 * 2 * np.pi * self.f0() * Cin) ** 2)
+        Q = np.pi / (4 * (self.wg.Z_0 * 2 * np.pi * self.f0() * Cin) ** 2)
+        if x_ratio is not None:
+            Q /= self.voltage_ratio(x_ratio) ** 2
+        return Q
 
     def Q_int(self):
         """Internal quality factor due to material losses.
@@ -432,13 +448,15 @@ class cpw_resonator(circuit):
         """
         return self._R_ / (self.w0() * self.L())
     
-    def Q_total(self, Cin=None):
-        """Loaded quality factor combining internal and external Q."""
-        return 1 / (1/self.Q_int() + 1/self.Q_ext(Cin))
-    
-    def coupling_strength(self, Cin=None):
-        """Ratio of internal to external Q (g = Q_int/Q_ext)."""
-        return self.Q_int() / self.Q_ext(Cin)
+    def Q_total(self, Cin=None, x_ratio: float = None):
+        """Loaded quality factor combining internal and external Q.
+        x_ratio: optional coupler position x/L (see Q_ext)."""
+        return 1 / (1/self.Q_int() + 1/self.Q_ext(Cin, x_ratio=x_ratio))
+
+    def coupling_strength(self, Cin=None, x_ratio: float = None):
+        """Ratio of internal to external Q (g = Q_int/Q_ext).
+        x_ratio: optional coupler position x/L (see Q_ext)."""
+        return self.Q_int() / self.Q_ext(Cin, x_ratio=x_ratio)
     
     def transmission_coefficient(self, f, Cin=None):
         """Transmission coefficient |S₂₁|² for a side-coupled resonator."""
