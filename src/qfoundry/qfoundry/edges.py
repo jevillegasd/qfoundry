@@ -1043,12 +1043,25 @@ class bus_resonator_coupler(edge):
         float
             ``|E_dressed(bare_b) - E_dressed(bare_a)|`` in Hz.
         """
+        E = self._dressed_energies(
+            [bare_a, bare_b], flux=flux, tunable_qubit=tunable_qubit,
+            evals_count=evals_count,
+        )
+        return abs(E[bare_b] - E[bare_a]) * 1e9
+
+    def _dressed_energies(self, bare_tuples, flux=None, tunable_qubit=None,
+                          evals_count=10) -> dict:
+        """Dressed energy (GHz) of each requested bare product state
+        ``(n_q0, n_res, n_q1)``, labeled by maximum overlap with the dressed
+        eigenvectors (see :meth:`avoided_crossing_gap`). One diagonalization
+        serves all requested states."""
         evals, evecs, hs = self.dressed_eigensys(
             flux=flux, tunable_qubit=tunable_qubit, evals_count=evals_count,
         )
         dims = [s.truncated_dim for s in hs.subsystem_list]
 
-        def _bare_vector(bare_tuple):
+        energies = {}
+        for bare_tuple in bare_tuples:
             vecs = []
             for n, d in zip(bare_tuple, dims):
                 v = np.zeros(d, dtype=complex)
@@ -1057,13 +1070,33 @@ class bus_resonator_coupler(edge):
             full = vecs[0]
             for v in vecs[1:]:
                 full = np.kron(full, v)
-            return full
+            overlaps = np.abs(evecs.conj().T @ full) ** 2
+            energies[bare_tuple] = evals[int(np.argmax(overlaps))]
+        return energies
 
-        def _dressed_energy(bare_tuple):
-            overlaps = np.abs(evecs.conj().T @ _bare_vector(bare_tuple)) ** 2
-            return evals[int(np.argmax(overlaps))]
+    def zeta_full(self, flux=None, tunable_qubit=None, evals_count: int = 12) -> float:
+        r"""Numerically exact static ZZ coefficient :math:`\zeta` (Hz) from the
+        dressed spectrum of the full qubit–resonator–qubit Hamiltonian:
 
-        return abs(_dressed_energy(bare_b) - _dressed_energy(bare_a)) * 1e9
+        .. math::
+
+            \zeta = E_{|1,0,1\rangle} - E_{|1,0,0\rangle}
+                    - E_{|0,0,1\rangle} + E_{|0,0,0\rangle}
+
+        (occupations ordered ``(n_q0, n_res, n_q1)``, resonator in vacuum).
+
+        The perturbative :meth:`zeta` is second order in the exchange coupling
+        with poles at :math:`\Delta = -\alpha_0` and :math:`\Delta = +\alpha_1`
+        (the straddling-regime boundaries) and wildly overestimates the
+        interaction near them. This method diagonalizes the composite
+        Hamiltonian instead and stays accurate throughout. Requires all three
+        constituents to carry instantiated ``qmodel``\\s.
+        """
+        E = self._dressed_energies(
+            [(0, 0, 0), (1, 0, 0), (0, 0, 1), (1, 0, 1)],
+            flux=flux, tunable_qubit=tunable_qubit, evals_count=evals_count,
+        )
+        return (E[(1, 0, 1)] - E[(1, 0, 0)] - E[(0, 0, 1)] + E[(0, 0, 0)]) * 1e9
 
     def bare_state_labels(self, flux=None, tunable_qubit=None, evals_count=10) -> list:
         """Convenience wrapper: diagonalize (see :meth:`dressed_eigensys`) and
