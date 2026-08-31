@@ -679,10 +679,11 @@ class transmon(qubit, circuit):
         Energy of the m-th level
         """
         from numpy.linalg import LinAlgError
-        if self.qmodel is not None: 
+        if self.qmodel is not None:
             try:
+                # energy_table is indexed [param_index, level]
                 spectrum = self.qmodel.get_spectrum_vs_paramvals(param_name = "ng",  param_vals = [0, 0.5])
-                E_m = spectrum.energy_table[m,0] # Energy at ng=0
+                E_m = spectrum.energy_table[0, m] # Energy at ng=0
                 return E_m * 1e9
             except LinAlgError as e:
                 return -self.Ej() + sqrt(8*self.Ej()*self.Ec())*(m+0.5) - self.Ec()*(6*m**2 + 6*m + 3)/12
@@ -805,26 +806,52 @@ class transmon(qubit, circuit):
         tau_pi = pi / self.omega_rabi(V_rms)  # Time for a pi pulse
         return tau_pi
     
+    def _epsilon_m_asymptotic(self, m):
+        """
+        Signed asymptotic charge dispersion of the m-th level
+        https://arxiv.org/pdf/cond-mat/0703002 eq 2.5
+        """
+        return (-1)**m * self.Ec() * (2**(4*m+5) / factorial(m)) * \
+            sqrt(2/pi) * (self.Ej()/(2*self.Ec()))**(m/2 + 3/4) * \
+            exp(-sqrt(8*self.Ej()/self.Ec()))
+
     def epsilon_m(self, m = 0):
         """
-        Charge dispersion for the m-th level
+        Charge dispersion for the m-th level: peak-to-peak variation of E_m
+        between ng=0 and ng=0.5.
         https://arxiv.org/pdf/cond-mat/0703002 eq 2.5
         """
         from numpy.linalg import LinAlgError
 
-        eps_m = (-1)**m * self.Ec() * (2**(4*m+5) / factorial(m)) * \
-            sqrt(2/pi) * (self.Ej()/(2*self.Ec()))**(m/2 + 3/4) * \
-            exp(-sqrt(8*self.Ej()/self.Ec()))
-        
+        if self.qmodel is not None:
+            try:
+                # energy_table is indexed [param_index, level]
+                spectrum = self.qmodel.get_spectrum_vs_paramvals(param_name = "ng",  param_vals = [0, 0.5])
+                epsilon_m = abs(spectrum.energy_table[1, m] - spectrum.energy_table[0, m])
+                return epsilon_m * 1e9
+            except LinAlgError:
+                pass
+        return self._epsilon_m_asymptotic(m)
+
+    def epsilon_01(self):
+        """
+        Peak-to-peak charge dispersion of the 0->1 transition frequency (Hz):
+        the f01 shift between ng=0 and the charge-degeneracy point ng=0.5,
+        epsilon_01 = |epsilon_1 - epsilon_0| with the signed level dispersions
+        of https://arxiv.org/pdf/cond-mat/0703002 eq 2.5.
+        """
+        from numpy.linalg import LinAlgError
+
         if self.qmodel is not None:
             try:
                 spectrum = self.qmodel.get_spectrum_vs_paramvals(param_name = "ng",  param_vals = [0, 0.5])
-                epsilon_m = abs(spectrum.energy_table[m,1] - spectrum.energy_table[m,0])
-                return epsilon_m * 1e9
-            except LinAlgError as e:
-                return eps_m
-        else:
-            return eps_m
+                E = spectrum.energy_table  # [param_index, level]
+                f01_ng0 = E[0, 1] - E[0, 0]
+                f01_ng05 = E[1, 1] - E[1, 0]
+                return abs(f01_ng05 - f01_ng0) * 1e9
+            except LinAlgError:
+                pass
+        return abs(self._epsilon_m_asymptotic(1) - self._epsilon_m_asymptotic(0))
 
 
     def __str__(self):
