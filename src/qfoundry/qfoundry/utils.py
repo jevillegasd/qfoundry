@@ -44,6 +44,20 @@ def Schur_complement(C, indices_A, indices_B):
     return C_eff
 
 
+def reduce_maxwell(C, keep_indices):
+    """Reduce a Maxwell capacitance matrix to the given nodes, adiabatically
+    eliminating every other node via the Schur complement. When there is
+    nothing to eliminate, returns the plain sub-matrix over ``keep_indices``.
+
+    C: Full NxN Maxwell-convention capacitance matrix.
+    keep_indices: Ordered indices of the nodes to keep; the returned matrix's
+        rows/columns follow this order.
+    """
+    keep = list(keep_indices)
+    env = [i for i in range(C.shape[0]) if i not in keep]
+    return Schur_complement(C, keep, env) if env else C[ix_(keep, keep)]
+
+
 def delta_cap(C12, C13, C23, C3):
     """
     Calculate the effective coupling capacitance between nodes 1 and 2

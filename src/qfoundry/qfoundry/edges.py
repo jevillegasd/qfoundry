@@ -857,12 +857,10 @@ class bus_resonator_coupler(edge):
         -------
         bus_resonator_coupler
         """
-        from qfoundry.utils import Schur_complement, Cs_to_E
+        from qfoundry.utils import Cs_to_E, reduce_maxwell
 
         i0, ir, i1 = nodes.index(q0_node), nodes.index(resonator_node), nodes.index(q1_node)
-        M = np.asarray(C_matrix_F, dtype=float)
-        env = [i for i in range(len(nodes)) if i not in (i0, ir, i1)]
-        S = Schur_complement(M, [i0, ir, i1], env) if env else M[np.ix_([i0, ir, i1], [i0, ir, i1])]
+        S = reduce_maxwell(np.asarray(C_matrix_F, dtype=float), [i0, ir, i1])
 
         C_0r = abs(float(S[0, 1]))
         C_1r = abs(float(S[2, 1]))

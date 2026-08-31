@@ -808,11 +808,14 @@ class transmon(qubit, circuit):
     def epsilon_m(self, m = 0):
         """
         Charge dispersion for the m-th level
-        https://arxiv.org/pdf/cond-mat/0703002 eq 3.5
+        https://arxiv.org/pdf/cond-mat/0703002 eq 2.5
         """
         from numpy.linalg import LinAlgError
 
-        eps_m = (-1)**m * self.Ec() * (2**(4*m+5) / factorial(m)) * sqrt(2/pi) * (self.Ej()/(2*self.Ec()))**(m/2 + 3/4) * exp(-sqrt(8*self.Ej()/self.Ec())) # Analytical approximation for charge dispersion, valid in the transmon regime (EJ/EC >> 1); Koch2007 Eq. 2.18
+        eps_m = (-1)**m * self.Ec() * (2**(4*m+5) / factorial(m)) * \
+            sqrt(2/pi) * (self.Ej()/(2*self.Ec()))**(m/2 + 3/4) * \
+            exp(-sqrt(8*self.Ej()/self.Ec()))
+        
         if self.qmodel is not None:
             try:
                 spectrum = self.qmodel.get_spectrum_vs_paramvals(param_name = "ng",  param_vals = [0, 0.5])
