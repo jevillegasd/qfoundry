@@ -747,13 +747,24 @@ class transmon(qubit, circuit):
         """
         return self.f01() - self.res_ro.f0()
 
+    def gamma_P(self):
+        """
+        Purcell-limited decay rate using the resonator
+        external coupling kappa = kappa_ext + kappa_int.
+        https://arxiv.org/pdf/cond-mat/0703002 eq 4.7
+        
+        """
+        return self.g01()**2 * self.res_ro.kappa_ext() / self.delta()**2
+
+    
     def T1_max(self):
         """
-        Higher bound of T1 (Purcell limit), using the resonator's total
+        Upper bound of T1 (Purcell limit), using the resonator's total
         linewidth kappa = kappa_ext + kappa_int.
         https://arxiv.org/pdf/cond-mat/0703002 eq 4.7
+        Purcell-limited T1
         """
-        return (self.delta() / self.g01()) ** 2 / (self.res_ro.kappa())
+        return 1 / self.gamma_P()
     
     def T1_drive(self, Z0=50):
         """
