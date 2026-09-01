@@ -56,6 +56,96 @@ import scqubits as scq
 # Module-level coupling helper functions
 # ---------------------------------------------------------------------------
 
+def cr_coefficients_exact(
+    f0: float, f1: float, alpha0: float, alpha1: float, g: float,
+    Omega: Optional[float] = None, Nc: int = 7, Nt: int = 6,
+) -> tuple[float, float]:
+    r"""Numerically exact CR coefficients (ν, μ) for a driven transmon pair.
+
+    Models two Duffing transmons (bosonic ladder elements) with exchange
+    coupling ``g`` and a CR drive on the control (q0), in the frame rotating
+    at the target frequency (RWA, time-independent). The full Hamiltonian is
+    diagonalized exactly and block-diagonalized per *control sector* via
+    des Cloizeaux' direct rotation: the degenerate :math:`\{|c,0\rangle,
+    |c,1\rangle\}` pair of each control state c is the correct reduction for
+    CR rates (blocking on all four computational states at once keeps the
+    off-resonant control drive in-block and yields wrong coefficients). The
+    sector off-diagonals :math:`x_c` map onto the coefficients through
+    :math:`H_\mathrm{eff} = (\Omega/2)(\nu\,IX + \mu\,ZX) + \dots`, i.e.
+    ν = (x₀+x₁)/Ω and μ = (x₀−x₁)/Ω.
+
+    Both coefficients are dimensionless (interaction rate = coefficient ×
+    drive amplitude Ω, in Ω's units) and Ω-independent in the linear-response
+    regime the default drive amplitude keeps them in. Leading-order limits:
+    :math:`\nu \to -g/(\Delta+\alpha_0)`,
+    :math:`\mu \to -g\alpha_0/(\Delta(\Delta+\alpha_0))`
+    (see :meth:`edge.nu_perturbative` / :meth:`edge.mu_perturbative`).
+
+    Parameters
+    ----------
+    f0, f1 : float
+        Control / target 01 frequencies in Hz (Δ = f0 − f1).
+    alpha0, alpha1 : float
+        *Signed* anharmonicities in Hz (negative for transmons).
+    g : float
+        Exchange coupling in Hz.
+    Omega : float, optional
+        CR drive amplitude in Hz. Default: 10⁻³·min(|Δ|, |Δ+α₀|), safely in
+        the linear-response regime.
+    Nc, Nt : int
+        Control / target levels kept (defaults converge to ≪0.1%).
+
+    Returns
+    -------
+    (nu, mu) : tuple of float
+        Dimensionless IX and ZX coefficients. Note ν and μ *jointly* flip
+        sign with the drive phase (Ω → −Ω); the positive-real-drive
+        convention is fixed here.
+
+    Raises
+    ------
+    ValueError
+        If Δ = 0 or Δ + α₀ = 0 (CR coefficients singular at those
+        resonances).
+    """
+    D = f0 - f1
+    if D == 0.0 or (D + alpha0) == 0.0:
+        raise ValueError(
+            "CR coefficients are singular for this qubit pair (Δ=0 or Δ+α₀=0)."
+        )
+    if Omega is None:
+        Omega = 1e-3 * min(abs(D), abs(D + alpha0))
+
+    def _ladder(N: int) -> np.ndarray:
+        b = np.zeros((N, N))
+        for n in range(1, N):
+            b[n - 1, n] = np.sqrt(n)
+        return b
+
+    bc, bt = _ladder(Nc), _ladder(Nt)
+    Ic, It = np.eye(Nc), np.eye(Nt)
+    Ec = np.diag([n * D + 0.5 * alpha0 * n * (n - 1) for n in range(Nc)])
+    Et = np.diag([0.5 * alpha1 * m * (m - 1) for m in range(Nt)])
+    H = (np.kron(Ec, It) + np.kron(Ic, Et)
+         + g * (np.kron(bc.T, bt) + np.kron(bc, bt.T))
+         + 0.5 * Omega * np.kron(bc + bc.T, It))
+    evals, evecs = np.linalg.eigh(H)
+
+    def _sector_offdiag(c: int) -> float:
+        p0, p1 = c * Nt + 0, c * Nt + 1  # |c,0>, |c,1>
+        weight = np.abs(evecs[p0, :]) ** 2 + np.abs(evecs[p1, :]) ** 2
+        js = np.argsort(-weight)[:2]
+        W = evecs[[p0, p1], :][:, js]  # 2×2 projection of the two eigenvectors
+        S = W @ W.T
+        sv, svec = np.linalg.eigh(S)
+        S_m12 = svec @ np.diag(sv ** -0.5) @ svec.T
+        Heff = S_m12 @ W @ np.diag(evals[js]) @ W.T @ S_m12
+        return float(Heff[0, 1])
+
+    x0, x1 = _sector_offdiag(0), _sector_offdiag(1)
+    return (x0 + x1) / Omega, (x0 - x1) / Omega
+
+
 def _I_zpf(qubit) -> float:
     """Zero-point current fluctuation of a qubit (A).
 
@@ -340,19 +430,59 @@ class edge(ABC):
         [ManentiMotta] Eq 14.78.; [Paytterson2019] Eq. 4.28/2; [Magesan2020] Eq. 4.27
         """
         g_hz  = self.g()
-        a0    = self.q0.alpha()   # Hz  (negative for transmon)
-        a1    = self.q1.alpha()   # Hz
+        eta_0    = self.q0.alpha()   # Hz  (negative for transmon)
+        eta_1    = self.q1.alpha()   # Hz
         Delta = (self.q0.omega01() - self.q1.omega01()) / (2.0 * pi)  # Hz
 
         if Delta == 0.0:
             raise ValueError("zeta() is undefined for degenerate qubits (Δ = 0).")
 
-        term0 = 1 / (Delta + a0)
-        term1 = 1 / (Delta - a1)
-        return 2.0 * g_hz**2*(- term0 + term1)
+        term0 = 1 / (Delta - eta_1)
+        term1 = 1 / (Delta + eta_0)
+        
+        return 2.0 * g_hz**2*(term0 - term1)
+
+    def _cr_exact(self) -> tuple[float, float]:
+        """(ν, μ) from :func:`cr_coefficients_exact` on this edge's qubits."""
+        return cr_coefficients_exact(
+            f0=self.q0.omega01() / (2.0 * pi),
+            f1=self.q1.omega01() / (2.0 * pi),
+            alpha0=self.q0.alpha(),
+            alpha1=self.q1.alpha(),
+            g=self.g(),
+        )
 
     def nu(self) -> float:
-        r"""Bare IX coupling coefficient :math:`\nu` (dimensionless).
+        r"""IX coupling coefficient :math:`\nu` (dimensionless), numerically
+        exact.
+
+        Computed via :func:`cr_coefficients_exact` (sector-blocked
+        diagonalization of the driven transmon pair). The IX rate under a
+        drive of amplitude :math:`\Omega` is
+        :math:`\Omega_{IX} = \nu \cdot \Omega`, in whatever units Ω is
+        expressed. Leading-order estimate: :meth:`nu_perturbative`.
+
+        The sign (and magnitude) depends on the control/target assignment:
+        ``edge(q0, q1).nu()`` ≠ ``edge(q1, q0).nu()`` in general.
+        """
+        return self._cr_exact()[0]
+
+    def mu(self) -> float:
+        r"""ZX coupling coefficient :math:`\mu` (dimensionless), numerically
+        exact.
+
+        Computed via :func:`cr_coefficients_exact` (sector-blocked
+        diagonalization of the driven transmon pair). The ZX rate under a
+        drive :math:`\Omega` is :math:`\Omega_{ZX} = \mu \cdot \Omega`, in
+        whatever units Ω is expressed — making μ directly the CR gate speed
+        relative to single-qubit gates, see :meth:`t_cr`. Leading-order
+        estimate: :meth:`mu_perturbative`.
+        """
+        return self._cr_exact()[1]
+
+    def nu_perturbative(self) -> float:
+        r"""Leading-order perturbative IX coefficient :math:`\nu`
+        (dimensionless).
 
         In the cross-resonance (CR) interaction frame where q0 is driven at
         the frequency of q1, the leading-order IX term scales as:
@@ -362,13 +492,9 @@ class edge(ABC):
             \nu = -\frac{g}{\Delta_{01} + \alpha_0}
 
         where :math:`\Delta_{01} = f_0 - f_1` (Hz) and :math:`\alpha_0` is
-        the anharmonicity of the *control* qubit (q0).  g, Δ and α are all in
-        Hz, so ν is a pure ratio: the IX rate under a drive of amplitude
-        :math:`\Omega` is :math:`\Omega_{IX} = \nu \cdot \Omega`, in whatever
-        units Ω is expressed (Hz in, Hz out; rad s⁻¹ in, rad s⁻¹ out).
-
-        The sign (and magnitude) depends on the control/target assignment:
-        ``edge(q0, q1).nu()`` ≠ ``edge(q1, q0).nu()`` in general.
+        the *signed* anharmonicity of the control qubit (q0, negative for a
+        transmon).  g, Δ and α are all in Hz, so ν is a pure ratio.  For the
+        numerically exact value use :meth:`nu`.
 
         References
         ----------
@@ -383,8 +509,9 @@ class edge(ABC):
 
         return -g_hz / (Delta + a0)
 
-    def mu(self) -> float:
-        r"""Bare ZX coupling coefficient :math:`\mu` (dimensionless).
+    def mu_perturbative(self) -> float:
+        r"""Leading-order perturbative ZX coefficient :math:`\mu`
+        (dimensionless).
 
         Leading-order contribution to the ZX interaction in the CR frame:
 
@@ -392,11 +519,9 @@ class edge(ABC):
 
             \mu = -\frac{g \, \alpha_0}{\Delta_{01} \, (\Delta_{01} + \alpha_0)}
 
-        where :math:`\alpha_0` is the anharmonicity of the *control* qubit (q0).
-        Like :meth:`nu`, μ is a pure ratio (g, Δ, α all in Hz): the ZX rate
-        under a drive :math:`\Omega` is :math:`\Omega_{ZX} = \mu \cdot \Omega`,
-        in whatever units Ω is expressed.  This makes μ directly the CR gate
-        speed relative to single-qubit gates — see :meth:`t_cr`.
+        where :math:`\alpha_0` is the *signed* anharmonicity of the control
+        qubit (q0).  Like :meth:`nu_perturbative`, μ is a pure ratio (g, Δ, α
+        all in Hz).  For the numerically exact value use :meth:`mu`.
 
         References
         ----------
