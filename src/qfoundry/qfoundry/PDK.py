@@ -68,8 +68,9 @@ class WaveguideSpec:
     spacing : float
         Gap to ground plane in m.
     thickness : float, optional
-        Metal thickness in m. Falls back to the assigned material's film
-        thickness when None.
+        LEGACY fallback only — metal thickness in m. The assigned material's
+        film thickness is authoritative (thickness is a film property);
+        this is consulted only when the material has no thickness set.
     material : str, default="base"
         Name of a material in the PDK's ``materials`` registry.
     alpha : float, default=2.4e-2
@@ -138,7 +139,7 @@ class PDK:
         # Legacy cpw_w/cpw_g/cpw_t/alpha properties delegate to the default.
         self.waveguides: dict[str, WaveguideSpec] = {
             "cpw": WaveguideSpec(
-                name="cpw", width=15e-6, spacing=7.5e-6, thickness=0.1e-6,
+                name="cpw", width=15e-6, spacing=7.5e-6,
                 material="base", alpha=3.165e-3, wg_type="cpw",
             ),
         }
@@ -286,14 +287,19 @@ class PDK:
 
     @property
     def cpw_t(self) -> float:
+        # Thickness is a film property: the assigned material is the source
+        # of truth; a WaveguideSpec-level thickness is only a legacy fallback.
         wg = self.waveguide()
-        if wg.thickness is not None:
-            return wg.thickness
-        return self.material(wg.material).thickness
+        mat = self.material(wg.material)
+        if mat.thickness is not None:
+            return mat.thickness
+        return wg.thickness
 
     @cpw_t.setter
     def cpw_t(self, value: float) -> None:
-        self.waveguide().thickness = value
+        # Writes through to the default waveguide's *material* — thickness
+        # belongs to the film, not the waveguide geometry.
+        self.material(self.waveguide().material).thickness = value
 
     @property
     def alpha(self) -> float:
@@ -361,7 +367,9 @@ class PDK:
         """
         wg = self.waveguide(name)
         material = self.material(wg.material)
-        thickness = wg.thickness if wg.thickness is not None else material.thickness
+        # Material film thickness is authoritative; WaveguideSpec.thickness
+        # is only a legacy fallback for specs without a material thickness.
+        thickness = material.thickness if material.thickness is not None else wg.thickness
         return cpw(
             epsilon_r=self.epsilon_r,
             height=self.substrate_h,
@@ -418,8 +426,7 @@ qf_nbta_pdk.add_material(sc_stack([(mat_nb, 100e-9), (mat_ta, 10e-9)],
                                   T=qf_nbta_pdk.T_op, name="Nb/Ta"))
 for _m in _al_jj_leads(qf_nbta_pdk.T_op):
     qf_nbta_pdk.add_material(_m)
-qf_nbta_pdk.waveguide().material = "Nb/Ta"
-qf_nbta_pdk.waveguide().thickness = None  # fall through to the stack's 110 nm
+qf_nbta_pdk.waveguide().material = "Nb/Ta"  # thickness follows the stack's 110 nm
 qf_nbta_pdk.jj_base_material = "Al 30nm"
 qf_nbta_pdk.jj_counter_material = "Al 60nm"
 del qf_nbta_pdk.materials["base"]  # the bilayer *is* the base metal here
