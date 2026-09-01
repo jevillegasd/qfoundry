@@ -419,8 +419,14 @@ class edge(ABC):
         qubit detuning, :math:`\alpha_i` is the anharmonicity of qubit *i*
         (Hz), and :math:`g` is the transverse coupling (Hz).
 
-        Note that :math:`\zeta` is asymmetric under q0 ↔ q1 by construction.
-        The prefactor of 1/2 depends on how the Hamiltonian is expressed, here
+        Unlike ν/μ, :math:`\zeta` is **symmetric** under q0 ↔ q1 (swapping
+        maps Δ → −Δ and α₀ ↔ α₁, leaving the expression invariant) — a static
+        ZZ has no control/target direction, so the qubit ordering of the edge
+        cannot change it.  The factor 2 comes from the :math:`\sqrt{2}`
+        two-photon matrix elements into :math:`|2,0\rangle`/:math:`|0,2\rangle`
+        (:math:`|\langle 2,0|V|1,1\rangle|^2 = 2g^2`); ζ equals the measurable
+        level-shift combination :math:`E_{11}-E_{10}-E_{01}+E_{00}`, matching
+        the Hamiltonian convention
 
         .. math::
             \hat{H} = \frac{\omega_0}{2}\hat{\sigma}_z^{(0)} + \frac{\omega_1}{2}\hat{\sigma}_z^{(1)} + \frac{\zeta}{4} \hat{\sigma}_z^{(0)} \otimes \hat{\sigma}_z^{(1)}
@@ -812,12 +818,21 @@ class bus_resonator_coupler(edge):
         Coupling capacitance between q0 and the resonator (F).
     C_1r : float
         Coupling capacitance between q1 and the resonator (F).
+    C_01 : float, default 0.0
+        *Direct* qubit–qubit capacitance (F) — the residual electrostatic
+        coupling between the two islands past/through the bus (the (q0,q1)
+        off-diagonal of the Schur-reduced 3-node matrix, see
+        :meth:`from_maxwell`). Negligible when the bus is near the qubits
+        (|J_bus| ≫ g_direct), but for a strongly detuned bus even ~0.1 fF
+        contributes MHz-scale exchange of the *opposite sign* to the
+        bus-mediated term (bus above the qubits ⇒ J_bus < 0, g_direct > 0),
+        so it can partially or fully cancel J.
 
     Notes
     -----
     The effective exchange coupling is derived in the dispersive regime
     (:math:`|g_{ir}| \\ll |\\Delta_{ir}|`) by adiabatically eliminating the
-    resonator mode.
+    resonator mode, plus the direct capacitive term when ``C_01`` is set.
 
     References
     ----------
@@ -825,11 +840,13 @@ class bus_resonator_coupler(edge):
     [Blais2021] Rev. Mod. Phys. 93, 025005, Eq. (136).
     """
 
-    def __init__(self, q0, q1, resonator, C_0r: float, C_1r: float):
+    def __init__(self, q0, q1, resonator, C_0r: float, C_1r: float,
+                 C_01: float = 0.0):
         super().__init__(q0, q1)
         self.resonator = resonator
         self.C_0r = C_0r
         self.C_1r = C_1r
+        self.C_01 = C_01
         self._g_0r = None
         self._g_1r = None
 
@@ -871,6 +888,8 @@ class bus_resonator_coupler(edge):
         g0, g1 : float
             Qubit–resonator coupling strengths :math:`g_{0r}`,
             :math:`g_{1r}` (Hz).
+        C_01 : float, default 0.0
+            Direct qubit–qubit capacitance (F); see the class docstring.
         **resonator_kwargs
             Additional keyword arguments forwarded to
             :meth:`cpw_resonator.from_energies` (e.g. ``wg``, ``n``,
@@ -883,6 +902,7 @@ class bus_resonator_coupler(edge):
         -------
         bus_resonator_coupler
         """
+        C_01 = resonator_kwargs.pop("C_01", 0.0)
         resonator_kwargs.setdefault("length_f", 2)
         resonator = cpw_resonator.from_energies(E_c, E_l, **resonator_kwargs)
         obj = cls.__new__(cls)
@@ -890,6 +910,7 @@ class bus_resonator_coupler(edge):
         obj.resonator = resonator
         obj.C_0r = _C_cap_qr(g0, q0, resonator)
         obj.C_1r = _C_cap_qr(g1, q1, resonator)
+        obj.C_01 = C_01
         obj._g_0r = g0
         obj._g_1r = g1
         return obj
@@ -936,6 +957,7 @@ class bus_resonator_coupler(edge):
         -------
         bus_resonator_coupler
         """
+        C_01 = resonator_kwargs.pop("C_01", 0.0)
         resonator_kwargs.setdefault("length_f", 2)
         resonator = cpw_resonator.from_frequency(frequency, **resonator_kwargs)
         obj = cls.__new__(cls)
@@ -943,6 +965,7 @@ class bus_resonator_coupler(edge):
         obj.resonator = resonator
         obj.C_0r = _C_cap_qr(g0, q0, resonator)
         obj.C_1r = _C_cap_qr(g1, q1, resonator)
+        obj.C_01 = C_01
         obj._g_0r = g0
         obj._g_1r = g1
         return obj
@@ -971,9 +994,12 @@ class bus_resonator_coupler(edge):
         The matrix is reduced via Schur complement (adiabatic elimination of
         every node other than the two qubit islands and the resonator body),
         yielding a 3x3 effective capacitance matrix.  The off-diagonal terms
-        give :math:`C_{0r}`, :math:`C_{1r}`; the resonator's own diagonal term
-        gives its self-capacitance, from which :math:`E_C` follows via
-        :func:`~qfoundry.utils.Cs_to_E`.
+        give :math:`C_{0r}`, :math:`C_{1r}` **and the direct qubit–qubit
+        capacitance** :math:`C_{01}` (the (q0, q1) element — essential for a
+        strongly detuned bus, where the direct exchange it produces is
+        comparable to the bus-mediated J and of opposite sign); the
+        resonator's own diagonal term gives its self-capacitance, from which
+        :math:`E_C` follows via :func:`~qfoundry.utils.Cs_to_E`.
 
         :math:`E_L` is not derivable from a capacitance matrix alone and must
         be supplied directly (e.g. from geometry or a separate FEM inductance
@@ -1012,11 +1038,12 @@ class bus_resonator_coupler(edge):
 
         C_0r = abs(float(S[0, 1]))
         C_1r = abs(float(S[2, 1]))
+        C_01 = abs(float(S[0, 2]))
         E_c = Cs_to_E(float(S[1, 1]))
 
         resonator_kwargs.setdefault("length_f", 2)
         resonator = cpw_resonator.from_energies(E_c, E_l, **resonator_kwargs)
-        return cls(q0, q1, resonator, C_0r, C_1r)
+        return cls(q0, q1, resonator, C_0r, C_1r, C_01=C_01)
 
     def _g_qr(self, qubit, C_qr: float) -> float:
         """Individual qubit–resonator coupling (Hz).
@@ -1035,24 +1062,19 @@ class bus_resonator_coupler(edge):
         """Qubit1–resonator coupling (Hz): direct value if set, else derived from C_1r."""
         return self._g_1r if self._g_1r is not None else self._g_qr(self.q1, self.C_1r)
 
-    def g(self) -> float:
-        r"""Effective bus-mediated qubit–qubit coupling (Hz).
+    def g_bus(self) -> float:
+        r"""Bus-mediated part of the qubit–qubit coupling (Hz).
 
         In the dispersive limit the resonator is adiabatically eliminated,
         yielding:
 
         .. math::
 
-            g_{\mathrm{eff}} = \frac{g_{0r}\,g_{1r}}{2}
+            g_{\mathrm{bus}} = \frac{g_{0r}\,g_{1r}}{2}
                 \left(\frac{1}{\Delta_{0r}} + \frac{1}{\Delta_{1r}}\right)
 
         where :math:`\Delta_{ir} = f_i - f_r` (Hz) is the qubit–resonator
         detuning.
-
-        Returns
-        -------
-        float
-            Effective coupling strength in Hz.
 
         References
         ----------
@@ -1070,14 +1092,43 @@ class bus_resonator_coupler(edge):
 
         return 0.5 * g_0r * g_1r * (1.0 / delta_0 + 1.0 / delta_1)
 
+    def g_direct(self) -> float:
+        r"""Direct capacitive qubit–qubit coupling (Hz) from ``C_01``.
+
+        Zero when no direct capacitance is set.  Positive by construction —
+        for a bus *above* the qubits (:math:`\Delta_{ir} < 0` ⇒ ``g_bus`` <
+        0) the two exchange paths interfere destructively, so this term can
+        cancel a large part of the mediated coupling when the bus is
+        strongly detuned.
+        """
+        if not self.C_01:
+            return 0.0
+        return _g_cap_qq(self.C_01, self.q0, self.q1)
+
+    def g(self) -> float:
+        r"""Total effective qubit–qubit exchange coupling (Hz).
+
+        Sum of the bus-mediated term and the direct capacitive term:
+
+        .. math::
+
+            J = g_{\mathrm{bus}} + g_{\mathrm{direct}}
+
+        See :meth:`g_bus` and :meth:`g_direct`.
+        """
+        return self.g_bus() + self.g_direct()
+
     def J(self) -> float:
         return self.g()  # alias for consistency with Blais2021 notation
 
     def hilbert_space(self) -> scq.HilbertSpace:
         """Build 3-body HilbertSpace [q0, resonator, q1].
 
-        Two capacitive n-operator interaction terms are added:
-        q0–resonator and resonator–q1.
+        Two capacitive n-operator interaction terms are added (q0–resonator
+        and resonator–q1), plus — when ``C_01`` is set — the *direct*
+        qubit–qubit capacitive term, so the dressed spectrum (zeta_full,
+        avoided crossings, CZ analysis) includes both exchange paths and
+        their interference.
 
         Returns
         -------
@@ -1105,6 +1156,15 @@ class bus_resonator_coupler(edge):
             op2=(self.q1.qmodel.n_operator, self.q1.qmodel),
             add_hc=True,
         )
+        g_01 = self.g_direct()
+        if g_01:
+            # n̂⊗n̂ is already hermitian — no add_hc.
+            hs.add_interaction(
+                g_strength=g_01 * 1e-9,
+                op1=(self.q0.qmodel.n_operator, self.q0.qmodel),
+                op2=(self.q1.qmodel.n_operator, self.q1.qmodel),
+                add_hc=False,
+            )
         return hs
 
     def dressed_eigensys(self, flux=None, tunable_qubit=None, evals_count=10):
