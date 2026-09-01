@@ -17,6 +17,57 @@ from scipy.constants import m_e, e
 from scipy.constants import elementary_charge as e_0
 from scipy.constants import Boltzmann as k_B
 
+def ab_effective_gap(delta1: float, delta2: float) -> float:
+    r"""Effective BCS gap of an asymmetric-lead Josephson junction, in J.
+
+    Ambegaokar–Baratoff generalised to leads with different gaps
+    (Anderson's formula, T → 0):
+
+        Ic·Rn = \frac{2 \Delta_1 \Delta_2}{e(\Delta_1+\Delta_2)}
+                K\!\left(\frac{|\Delta_1-\Delta_2|}{\Delta_1+\Delta_2}\right)
+
+    where K is the complete elliptic integral of the first kind. This
+    returns the equivalent gap Δ_eff such that the symmetric relation
+    Ic·Rn = πΔ_eff/(2e) reproduces that product:
+
+        Δ_eff = \frac{4 \Delta_1 \Delta_2}{\pi(\Delta_1+\Delta_2)} K(k)
+
+    Equal gaps reduce to Δ_eff = Δ. This is what makes the deliberate lead
+    thickness asymmetry (e.g. 30/60 nm Al) enter the junction Ic/Rn model.
+
+    References
+    ----------
+    - Ambegaokar & Baratoff, Phys. Rev. Lett. 10, 486 (1963) — erratum of
+      PRL 11, 104 (1963), asymmetric-gap result.
+    """
+    from scipy.special import ellipk
+
+    if delta1 <= 0 or delta2 <= 0:
+        raise ValueError("ab_effective_gap requires positive gaps.")
+    if delta1 == delta2:
+        return delta1
+    k = abs(delta1 - delta2) / (delta1 + delta2)
+    # scipy's ellipk takes the parameter m = k².
+    return 4.0 * delta1 * delta2 / (np.pi * (delta1 + delta2)) * ellipk(k**2)
+
+
+def jj_effective_gap(Tc1: float = None, Tc2: float = None, T: float = 20e-3) -> float:
+    """Effective junction gap Δ_eff in J from one or two lead critical
+    temperatures.
+
+    ``Tc1`` is the base (bottom) lead, ``Tc2`` the counter (top) lead.
+    ``Tc1=None`` falls through to the thin-aluminum default (Tc=1.14 K);
+    ``Tc2`` unset/non-positive/equal to ``Tc1`` gives the symmetric BCS gap,
+    otherwise the asymmetric-lead Ambegaokar–Baratoff gap
+    (:func:`ab_effective_gap`). This is the single source of truth for the
+    junction gap used in Ic·Rn / k_Δ relations.
+    """
+    delta_1 = (sc_metal(Tc=Tc1, T=T) if Tc1 else sc_metal(T=T)).sc_gap()
+    if Tc2 and Tc2 > 0 and Tc2 != Tc1:
+        return ab_effective_gap(delta_1, sc_metal(Tc=Tc2, T=T).sc_gap())
+    return delta_1
+
+
 Avogadro = 6.022e23  # atoms per mol
 Al_mass = 26.98e-3  # kg/mol
 Al_density = 2.7e3  # kg/m^3
@@ -45,6 +96,15 @@ class sc_metal:
         Normal-state resistivity of the thin film in Ohm*m.
     n_s : float, default=3*n_Al
         Superconducting electron density in m^-3.
+    name : str, optional
+        Human-readable label (e.g. "Al 30nm", "Nb/Ta stack"). Two films of
+        the same element but different thickness are distinct materials —
+        their gaps differ, which matters e.g. for quasiparticle trapping in
+        asymmetric junction leads.
+    thickness : float, optional
+        Film thickness in m. Purely descriptive on sc_metal (geometry users
+        like cpw take thickness explicitly); sc_stack computes it from its
+        layers.
 
     Notes
     -----
@@ -57,18 +117,30 @@ class sc_metal:
         T: float = 20e-3,
         rho: float = 2.06e-9,
         n_s: float = 3 * n_Al,
+        name: str = None,
+        thickness: float = None,
     ):
         self.Tc = Tc
         self.T = T
         self.rho = rho
         self.n_s = n_s
+        self.name = name
+        self.thickness = thickness
 
     def sc_gap(self):
-        """BCS superconducting gap Delta(T) in Joules."""
-        if self.T < 0.1:
-            return 1.764 * k_B * self.Tc
-        else:
-            return 3.076 * k_B * np.sqrt(1 - self.T / self.Tc)
+        """BCS superconducting gap Delta(T) in Joules.
+
+        Delta_0 = 1.764 kB Tc at T → 0. Above ~0.2·Tc the standard BCS
+        interpolation Delta(T) = Delta_0 · tanh(1.74·sqrt(Tc/T − 1)) is used
+        (accurate to ~2% over the full range; see Tinkham ch. 3). Returns 0
+        at or above Tc.
+        """
+        delta_0 = 1.764 * k_B * self.Tc
+        if self.T <= 0.2 * self.Tc:
+            return delta_0
+        if self.T >= self.Tc:
+            return 0.0
+        return delta_0 * np.tanh(1.74 * np.sqrt(self.Tc / self.T - 1))
 
     def sc_gap_eV(self):
         """BCS superconducting gap Delta(T) in eV."""
@@ -142,7 +214,7 @@ class sc_stack(sc_metal):
     - McMillan, Phys. Rev. 175, 537 (1968) - tunneling model for proximity bilayers
     """
 
-    def __init__(self, layers, T: float = 20e-3):
+    def __init__(self, layers, T: float = 20e-3, name: str = None):
         if not layers:
             raise ValueError("sc_stack requires at least one (material, thickness) layer.")
 
@@ -156,15 +228,15 @@ class sc_stack(sc_metal):
         n_s_eff = dos_weight / thickness
         rho_eff = thickness / sum(d / m.rho for m, d in self.layers)
 
-        super().__init__(Tc=Tc_eff, T=T, rho=rho_eff, n_s=n_s_eff)
-        self.thickness = thickness
+        super().__init__(Tc=Tc_eff, T=T, rho=rho_eff, n_s=n_s_eff,
+                         name=name, thickness=thickness)
 
     def __str__(self):
         stack = " / ".join(f"{d*1e9:3.1f} nm (Tc={m.Tc:3.2f} K)" for m, d in self.layers)
         return f"Superconducting stack [{stack}]: {super().__str__()}"
 
 
-mat_al = sc_metal(Tc=1.14, T=20e-3, rho=2.06e-9, n_s=3 * n_Al)
-mat_nb = sc_metal(Tc=9.2, T=20e-3, rho=1.5e-7, n_s=n_Nb)
-mat_ta = sc_metal(Tc=4.5, T=20e-3, rho=1.5e-7, n_s=n_Ta)
-mat_nb_ta = sc_stack([(mat_nb, 100e-9), (mat_ta, 10e-9)], T=20e-3)
+mat_al = sc_metal(Tc=1.14, T=20e-3, rho=2.06e-9, n_s=3 * n_Al, name="Al")
+mat_nb = sc_metal(Tc=9.2, T=20e-3, rho=1.5e-7, n_s=n_Nb, name="Nb")
+mat_ta = sc_metal(Tc=4.5, T=20e-3, rho=1.5e-7, n_s=n_Ta, name="Ta")
+mat_nb_ta = sc_stack([(mat_nb, 100e-9), (mat_ta, 10e-9)], T=20e-3, name="Nb/Ta")

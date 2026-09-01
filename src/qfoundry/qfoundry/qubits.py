@@ -333,9 +333,11 @@ class transmon(qubit, circuit):
         i_c : float
             Critical current in Amperes.
         R_jx : float, optional
-            Series parasitic resistance correction (e.g. contact/lead
-            resistance) in Ohms.  The stored junction resistance is
-            ``R_j = R_AB - R_jx``.  Default is ``0.0``.
+            Positive additive probing correction (Ω): the raw
+            room-temperature probe reading understates the effective
+            junction resistance, ``R_eff = R_j + R_jx``.  The stored
+            ``R_j = R_AB - R_jx`` is therefore the *raw probe reading*
+            equivalent for this Ic.  Default is ``0.0``.
         **kwargs
             Additional keyword arguments passed to :meth:`__init__`
             (e.g. ``E_c``, ``C_sigma``, ``C_g``, ``res_ro``, ``mat``).
@@ -361,11 +363,12 @@ class transmon(qubit, circuit):
         Parameters
         ----------
         R_j : float
-            Measured normal-state junction resistance in Ohms.
+            Raw room-temperature probe reading from the fab team, in Ohms.
         R_jx : float, optional
-            Series parasitic resistance correction in Ohms.  The effective
-            resistance used for the AB relation is ``R_j + R_jx``.  Default
-            is ``0.0``.
+            Positive additive probing correction in Ohms — the raw reading
+            understates the junction, so the effective junction resistance
+            used for the AB relation is ``R_j + R_jx`` (empirically fitted;
+            do *not* subtract it from the reading).  Default is ``0.0``.
         **kwargs
             Additional keyword arguments passed to :meth:`__init__`.
             Must include either ``E_c`` or ``C_sigma``.

@@ -131,19 +131,23 @@ class JosephsonJunctionAnalyzer:
         return I1 + I2 + I3
 
 
-    def ambegaokar_baratoff_model(self, Delta, Param, T=300) -> float:
+    def ambegaokar_baratoff_model(self, Delta, R_n, T=20e-3) -> float:
         """
         Ambegaokar-Baratoff model for Josephson junctions.
         https://www.pearsonhighered.com/assets/samplechapter/0/1/3/2/0132627426.pdf page 162
 
         Parameters
         ----------
+        Delta : float
+            Superconducting energy gap (J) — pass Joules, e.g.
+            ``sc_metal.sc_gap()``. (Not eV.)
         R_n : float
             Normal state resistance (Ω)
-        Delta : float
-            Superconducting energy gap (eV)
-        T : float
-            Temperature (K)
+        T : float, default 20e-3
+            Operating temperature (K). Must be in the superconducting state
+            (T < Tc, where Delta(T) > 0); the tanh thermal factor is ≈1
+            for T ≲ 0.1·Tc. Do NOT pass the room-temperature value here —
+            AB does not apply at 300 K (Delta = 0 there).
 
         Returns
         -------
@@ -151,9 +155,9 @@ class JosephsonJunctionAnalyzer:
             Critical current (A)
         """
 
-        return (np.pi * Delta) / (2 * self.e * Param) * np.tanh(Delta / (2 * self.kB * T))
+        return (np.pi * Delta) / (2 * self.e * R_n) * np.tanh(Delta / (2 * self.kB * T))
 
-    def R_to_Ic(self, R_n, Delta, T=300):
+    def R_to_Ic(self, R_n, Delta, T=20e-3):
         """
         Convert normal state resistance to critical current using Ambegaokar-Baratoff model.
 
@@ -162,9 +166,9 @@ class JosephsonJunctionAnalyzer:
         R_n : float
             Normal state resistance (Ω)
         Delta : float
-            Superconducting energy gap (eV)
-        T : float
-            Temperature (K)
+            Superconducting energy gap (J), e.g. ``sc_metal.sc_gap()``
+        T : float, default 20e-3
+            Operating temperature (K); see ``ambegaokar_baratoff_model``.
 
         Returns
         -------
@@ -172,9 +176,9 @@ class JosephsonJunctionAnalyzer:
             Critical current (A)
         """
         return self.ambegaokar_baratoff_model(Delta, R_n, T=T)
-    
 
-    def Ic_to_R(self, Ic, Delta, T=300):
+
+    def Ic_to_R(self, Ic, Delta, T=20e-3):
         """
         Convert critical current to normal state resistance using Ambegaokar-Baratoff model.
 
@@ -183,9 +187,9 @@ class JosephsonJunctionAnalyzer:
         Ic : float
             Critical current (A)
         Delta : float
-            Superconducting energy gap (eV)
-        T : float
-            Temperature (K)
+            Superconducting energy gap (J), e.g. ``sc_metal.sc_gap()``
+        T : float, default 20e-3
+            Operating temperature (K); see ``ambegaokar_baratoff_model``.
 
         Returns
         -------
