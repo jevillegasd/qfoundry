@@ -49,6 +49,7 @@ from scipy.optimize import brentq
 
 from qfoundry.qubits import transmon
 from qfoundry.resonator import cpw_resonator
+from qfoundry.utils import cr_pulse_duration, zx90_duration_ratio
 import scqubits as scq
 
 # ---------------------------------------------------------------------------
@@ -351,7 +352,7 @@ class edge(ABC):
         return 2.0 * g_hz**2*(- term0 + term1)
 
     def nu(self) -> float:
-        r"""Bare IX coupling coefficient :math:`\nu` (Hz per rad s⁻¹ of drive).
+        r"""Bare IX coupling coefficient :math:`\nu` (dimensionless).
 
         In the cross-resonance (CR) interaction frame where q0 is driven at
         the frequency of q1, the leading-order IX term scales as:
@@ -361,8 +362,10 @@ class edge(ABC):
             \nu = -\frac{g}{\Delta_{01} + \alpha_0}
 
         where :math:`\Delta_{01} = f_0 - f_1` (Hz) and :math:`\alpha_0` is
-        the anharmonicity of the *control* qubit (q0).  The full IX rate under a
-        drive of amplitude :math:`\Omega` (rad s⁻¹) is :math:`\nu \cdot \Omega`.
+        the anharmonicity of the *control* qubit (q0).  g, Δ and α are all in
+        Hz, so ν is a pure ratio: the IX rate under a drive of amplitude
+        :math:`\Omega` is :math:`\Omega_{IX} = \nu \cdot \Omega`, in whatever
+        units Ω is expressed (Hz in, Hz out; rad s⁻¹ in, rad s⁻¹ out).
 
         The sign (and magnitude) depends on the control/target assignment:
         ``edge(q0, q1).nu()`` ≠ ``edge(q1, q0).nu()`` in general.
@@ -381,7 +384,7 @@ class edge(ABC):
         return -g_hz / (Delta + a0)
 
     def mu(self) -> float:
-        r"""Bare ZX coupling coefficient :math:`\mu` (Hz per rad s⁻¹ of drive).
+        r"""Bare ZX coupling coefficient :math:`\mu` (dimensionless).
 
         Leading-order contribution to the ZX interaction in the CR frame:
 
@@ -390,9 +393,10 @@ class edge(ABC):
             \mu = -\frac{g \, \alpha_0}{\Delta_{01} \, (\Delta_{01} + \alpha_0)}
 
         where :math:`\alpha_0` is the anharmonicity of the *control* qubit (q0).
-        The full ZX rate under a drive :math:`\Omega` is :math:`\mu \cdot \Omega`.
-        (Dimensionless, like :meth:`nu`: :math:`\mu \cdot \Omega` has units of
-        :math:`\Omega`, i.e. a rate.)
+        Like :meth:`nu`, μ is a pure ratio (g, Δ, α all in Hz): the ZX rate
+        under a drive :math:`\Omega` is :math:`\Omega_{ZX} = \mu \cdot \Omega`,
+        in whatever units Ω is expressed.  This makes μ directly the CR gate
+        speed relative to single-qubit gates — see :meth:`t_cr`.
 
         References
         ----------
@@ -418,12 +422,12 @@ class edge(ABC):
         Parameters
         ----------
         Omega : float
-            Drive amplitude in rad s⁻¹.
+            Drive amplitude (any rate unit).
 
         Returns
         -------
         float
-            IX rate in Hz.
+            IX rate in the same units as ``Omega`` (ν is dimensionless).
 
         References
         ----------
@@ -441,18 +445,37 @@ class edge(ABC):
         Parameters
         ----------
         Omega : float
-            Drive amplitude in rad s⁻¹.
+            Drive amplitude (any rate unit).
 
         Returns
         -------
         float
-            ZX rate in Hz.
+            ZX rate in the same units as ``Omega`` (μ is dimensionless).
 
         References
         ----------
         [Magesan2020] Eq. (C9).
         """
         return self.mu() * Omega
+
+    def zx90_duration_ratio(self) -> float:
+        r"""CR ZX(π/2) gate length in units of the control π-pulse length,
+        :math:`t_{ZX90}/t_\pi = 1/(2|\mu|)`.
+
+        Delegates to :func:`qfoundry.utils.zx90_duration_ratio` with this
+        edge's :meth:`mu`.
+        """
+        return zx90_duration_ratio(self.mu())
+
+    def t_cr(self, t_pi: float, theta: float = pi / 2.0) -> float:
+        r"""Duration (s) of a square CR pulse producing a ZX rotation
+        ``theta`` (default π/2), for a drive amplitude matched to a resonant
+        π pulse of duration ``t_pi`` on the control qubit.
+
+        Delegates to :func:`qfoundry.utils.cr_pulse_duration` with this
+        edge's :meth:`mu` — see it for the formula and assumptions.
+        """
+        return cr_pulse_duration(self.mu(), t_pi, theta)
 
     # ------------------------------------------------------------------
     # Helpers

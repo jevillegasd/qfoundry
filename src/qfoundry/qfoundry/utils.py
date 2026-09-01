@@ -160,6 +160,28 @@ def R_to_Ic(R, mat=sc_metal(1.14, T=20e-3)):
     return JosephsonJunctionAnalyzer().R_to_Ic(R, mat.sc_gap(), T=mat.T)
 
 
+def zx90_duration_ratio(mu):
+    """CR ZX(π/2) gate length in units of the control π-pulse length.
+
+    ``mu`` is the dimensionless ZX coefficient (qfoundry.edges.edge.mu());
+    with the CR drive amplitude matched to a resonant π pulse,
+    t_ZX90 / t_pi = 1 / (2·|mu|). Scalar twin of edge.zx90_duration_ratio()
+    for pipelines that only carry the stored coefficient.
+    """
+    return 1.0 / (2.0 * abs(mu))
+
+
+def cr_pulse_duration(mu, t_pi, theta=pi / 2.0):
+    """Duration (s) of a square CR pulse producing a ZX rotation ``theta``.
+
+    ``mu`` is the dimensionless ZX coefficient and ``t_pi`` the resonant
+    π-pulse duration on the control qubit (drive amplitude Ω = π/t_pi):
+    t_CR = θ·t_pi / (π·|mu|); θ = π/2 gives t_pi/(2|mu|). Scalar twin of
+    edge.t_cr().
+    """
+    return theta * t_pi / (pi * abs(mu))
+
+
 def Ej_to_Ic(Ej):
     """Critical current (A) implied by Josephson energy Ej (Hz). Ic = Ej*4*pi*e_0."""
     return Ej * 4.0 * pi * e_0
