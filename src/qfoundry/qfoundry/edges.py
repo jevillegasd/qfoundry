@@ -840,13 +840,17 @@ class bus_resonator_coupler(edge):
     [Blais2021] Rev. Mod. Phys. 93, 025005, Eq. (136).
     """
 
+    #: Valid coupling-model selections (see :meth:`resolved_coupling_model`).
+    COUPLING_MODELS = ("auto", "combined", "bus", "direct", "distributed")
+
     def __init__(self, q0, q1, resonator, C_0r: float, C_1r: float,
-                 C_01: float = 0.0):
+                 C_01: float = 0.0, coupling_model: str = "auto"):
         super().__init__(q0, q1)
         self.resonator = resonator
         self.C_0r = C_0r
         self.C_1r = C_1r
         self.C_01 = C_01
+        self.coupling_model = coupling_model
         self._g_0r = None
         self._g_1r = None
 
@@ -903,6 +907,7 @@ class bus_resonator_coupler(edge):
         bus_resonator_coupler
         """
         C_01 = resonator_kwargs.pop("C_01", 0.0)
+        coupling_model = resonator_kwargs.pop("coupling_model", "auto")
         resonator_kwargs.setdefault("length_f", 2)
         resonator = cpw_resonator.from_energies(E_c, E_l, **resonator_kwargs)
         obj = cls.__new__(cls)
@@ -911,6 +916,7 @@ class bus_resonator_coupler(edge):
         obj.C_0r = _C_cap_qr(g0, q0, resonator)
         obj.C_1r = _C_cap_qr(g1, q1, resonator)
         obj.C_01 = C_01
+        obj.coupling_model = coupling_model
         obj._g_0r = g0
         obj._g_1r = g1
         return obj
@@ -958,6 +964,7 @@ class bus_resonator_coupler(edge):
         bus_resonator_coupler
         """
         C_01 = resonator_kwargs.pop("C_01", 0.0)
+        coupling_model = resonator_kwargs.pop("coupling_model", "auto")
         resonator_kwargs.setdefault("length_f", 2)
         resonator = cpw_resonator.from_frequency(frequency, **resonator_kwargs)
         obj = cls.__new__(cls)
@@ -966,6 +973,7 @@ class bus_resonator_coupler(edge):
         obj.C_0r = _C_cap_qr(g0, q0, resonator)
         obj.C_1r = _C_cap_qr(g1, q1, resonator)
         obj.C_01 = C_01
+        obj.coupling_model = coupling_model
         obj._g_0r = g0
         obj._g_1r = g1
         return obj
@@ -998,8 +1006,10 @@ class bus_resonator_coupler(edge):
         capacitance** :math:`C_{01}` (the (q0, q1) element — essential for a
         strongly detuned bus, where the direct exchange it produces is
         comparable to the bus-mediated J and of opposite sign); the
-        resonator's own diagonal term gives its self-capacitance, from which
-        :math:`E_C` follows via :func:`~qfoundry.utils.Cs_to_E`.
+        resonator's diagonal term gives its full electrostatic
+        self-capacitance, converted to the standing-wave *mode* capacitance
+        (distributed part at half weight + end couplers at full weight)
+        before :math:`E_C` follows via :func:`~qfoundry.utils.Cs_to_E`.
 
         :math:`E_L` is not derivable from a capacitance matrix alone and must
         be supplied directly (e.g. from geometry or a separate FEM inductance
@@ -1039,7 +1049,15 @@ class bus_resonator_coupler(edge):
         C_0r = abs(float(S[0, 1]))
         C_1r = abs(float(S[2, 1]))
         C_01 = abs(float(S[0, 2]))
-        E_c = Cs_to_E(float(S[1, 1]))
+        # Mode capacitance of the distributed resonator — NOT the raw Maxwell
+        # diagonal: S[1,1] is the FULL electrostatic capacitance (C'·ℓ plus
+        # the coupling caps), while the standing-wave mode's energy-weighted
+        # capacitance is the distributed ground part at half weight
+        # (∫C'cos² = C'ℓ/2) plus the end couplers at full weight (both bus
+        # ends are voltage antinodes for the half-wave default). Using
+        # S[1,1] directly underestimates f0 by ~√2.
+        C_gnd = float(S[1, 1]) - C_0r - C_1r
+        E_c = Cs_to_E(C_gnd / 2.0 + C_0r + C_1r)
 
         resonator_kwargs.setdefault("length_f", 2)
         resonator = cpw_resonator.from_energies(E_c, E_l, **resonator_kwargs)
@@ -1065,20 +1083,27 @@ class bus_resonator_coupler(edge):
     def g_bus(self) -> float:
         r"""Bus-mediated part of the qubit–qubit coupling (Hz).
 
-        In the dispersive limit the resonator is adiabatically eliminated,
-        yielding:
+        Adiabatic elimination of the resonator mode, *including the
+        counter-rotating terms*:
 
         .. math::
 
             g_{\mathrm{bus}} = \frac{g_{0r}\,g_{1r}}{2}
-                \left(\frac{1}{\Delta_{0r}} + \frac{1}{\Delta_{1r}}\right)
+                \left(\frac{1}{\Delta_{0r}} + \frac{1}{\Delta_{1r}}
+                    - \frac{1}{\Sigma_{0r}} - \frac{1}{\Sigma_{1r}}\right)
 
-        where :math:`\Delta_{ir} = f_i - f_r` (Hz) is the qubit–resonator
-        detuning.
+        where :math:`\Delta_{ir} = f_i - f_r` and :math:`\Sigma_{ir} = f_i +
+        f_r` (Hz).  The RWA form (1/Δ terms only) is accurate for a bus near
+        the qubits, but for a strongly detuned bus :math:`|\Delta| \sim
+        \Sigma` and the counter-rotating terms are first-order important —
+        they also partially cancel the through-resonator electrostatic
+        coupling in :meth:`g_direct`, restoring the correct screening limit
+        as :math:`f_r \to \infty` (verified against exact diagonalization).
 
         References
         ----------
-        [Majer2007] Nature 449, 443; [Blais2021] Eq. (6.2).
+        [Majer2007] Nature 449, 443; [Blais2021] Eq. (6.2);
+        [Yan2018] PRApplied 10, 054062 (rotating + counter-rotating form).
         [ManentiMotta2023] Eq. (14.76)
         """
         g_0r = self._g0r()
@@ -1086,11 +1111,32 @@ class bus_resonator_coupler(edge):
         f_r  = self.resonator.f0()
         delta_0 = self.q0.f01() - f_r   # Hz
         delta_1 = self.q1.f01() - f_r   # Hz
+        sigma_0 = self.q0.f01() + f_r   # Hz
+        sigma_1 = self.q1.f01() + f_r   # Hz
 
         if delta_0 == 0.0 or delta_1 == 0.0:
             raise ValueError("g() is singular when a qubit is resonant with the bus.")
 
-        return 0.5 * g_0r * g_1r * (1.0 / delta_0 + 1.0 / delta_1)
+        return 0.5 * g_0r * g_1r * (
+            1.0 / delta_0 + 1.0 / delta_1 - 1.0 / sigma_0 - 1.0 / sigma_1
+        )
+
+    def C_through(self) -> float:
+        r"""Star-mesh through-resonator electrostatic capacitance (F):
+
+        .. math::
+
+            C_\mathrm{through} = \frac{C_{0r}\,C_{1r}}
+                {C_{0r} + C_{1r} + C'\ell}
+
+        with :math:`C'\ell` the line's full electrostatic capacitance (from
+        ``resonator.wg.C_m`` × ``resonator.length``). This is the 3-node
+        approximation of the direct qubit–qubit path through the resonator
+        body — the value ``C_01`` carries in the lumped models, and the part
+        of :meth:`C_eff_distributed` that survives at DC.
+        """
+        C_line = self.resonator.wg.C_m * self.resonator.length
+        return self.C_0r * self.C_1r / (C_line + self.C_0r + self.C_1r)
 
     def g_direct(self) -> float:
         r"""Direct capacitive qubit–qubit coupling (Hz) from ``C_01``.
@@ -1105,17 +1151,92 @@ class bus_resonator_coupler(edge):
             return 0.0
         return _g_cap_qq(self.C_01, self.q0, self.q1)
 
-    def g(self) -> float:
-        r"""Total effective qubit–qubit exchange coupling (Hz).
+    def is_far_detuned(self, factor: float = 2.0) -> bool:
+        r"""True when the bus fundamental is far above both qubits
+        (:math:`f_r > \mathrm{factor} \cdot \max(f_0, f_1)`).
 
-        Sum of the bus-mediated term and the direct capacitive term:
-
-        .. math::
-
-            J = g_{\mathrm{bus}} + g_{\mathrm{direct}}
-
-        See :meth:`g_bus` and :meth:`g_direct`.
+        In this regime every line mode is adiabatic at the qubit frequency,
+        so the *distributed* elimination (:meth:`g_distributed`) is the
+        physically correct model; the lumped single-mode + through-term
+        decomposition (:meth:`g_bus` + :meth:`g_direct`) miscounts the
+        partial cancellation between the mode and electrostatic paths
+        (validated against a measured 200 kHz ZZ device, 2026-09).
         """
+        return self.resonator.f0() > factor * max(self.q0.f01(), self.q1.f01())
+
+    def C_eff_distributed(self, frequency: Optional[float] = None) -> float:
+        r"""Effective qubit–qubit transfer capacitance (F) of the full
+        distributed bus, from the exact ABCD cascade
+        :math:`C_{0r}` — transmission line — :math:`C_{1r}` evaluated at
+        ``frequency`` (default: the qubits' geometric-mean frequency).
+
+        This adiabatically eliminates the *entire* line — all modes, all
+        counter-rotating terms and the electrostatics enter with the correct
+        signs automatically. The DC limit reproduces the star-mesh result
+        with the line's full electrostatic capacitance
+        :math:`C_{0r}C_{1r}/(C_{0r}+C_{1r}+C'\ell)`. Valid whenever the
+        evaluation frequency is below the line's first resonance.
+
+        Line parameters (Z₀ with kinetic inductance, phase velocity) come
+        from ``resonator.wg``; the physical length from ``resonator.length``.
+        """
+        wg = self.resonator.wg
+        length = self.resonator.length
+        f = frequency if frequency is not None else np.sqrt(self.q0.f01() * self.q1.f01())
+        w = 2.0 * pi * f
+        # per-unit-length L (incl. kinetic) and C  ->  Z, beta*l
+        Lp, Cp = wg.L, wg.C_m
+        Z = np.sqrt(Lp / Cp)
+        bl = w * length * np.sqrt(Lp * Cp)
+        A2, B2 = np.cos(bl), 1j * Z * np.sin(bl)
+        C2, D2 = 1j * np.sin(bl) / Z, np.cos(bl)
+        Zc0, Zc1 = 1.0 / (1j * w * self.C_0r), 1.0 / (1j * w * self.C_1r)
+        B_tot = (A2 + Zc0 * C2) * Zc1 + B2 + Zc0 * D2  # cascade ABCD 'B'
+        return float(np.real(1.0 / (1j * w * B_tot)))
+
+    def g_distributed(self) -> float:
+        r"""Qubit–qubit exchange coupling (Hz) in the distributed-bus model:
+        :math:`J = g(C_\mathrm{eff}) + g_\mathrm{direct}`.
+
+        ``C_01`` must be the *geometric* bypass capacitance only — the
+        through-resonator path is already inside :meth:`C_eff_distributed`
+        (adding a star-mesh-derived through term here would double count).
+        """
+        return _g_cap_qq(self.C_eff_distributed(), self.q0, self.q1) + self.g_direct()
+
+    def resolved_coupling_model(self) -> str:
+        r"""The coupling model actually in effect.
+
+        ``self.coupling_model`` selects it explicitly (``"combined"``,
+        ``"bus"``, ``"direct"``, ``"distributed"``); ``"auto"`` (default)
+        picks by detuning — :meth:`is_far_detuned` → ``"distributed"``,
+        else ``"combined"`` (single mode incl. counter-rotating + direct
+        capacitive term).
+        """
+        if self.coupling_model and self.coupling_model != "auto":
+            return self.coupling_model
+        return "distributed" if self.is_far_detuned() else "combined"
+
+    def g(self) -> float:
+        r"""Effective qubit–qubit exchange coupling (Hz) of the resolved
+        coupling model (:meth:`resolved_coupling_model`):
+
+        - ``"combined"``     → :meth:`g_bus` + :meth:`g_direct`
+        - ``"bus"``          → :meth:`g_bus` only (mode-mediated)
+        - ``"direct"``       → :meth:`g_direct` only (the edge behaves as a
+          direct capacitive coupler with :math:`C_{12} = C_{01}`)
+        - ``"distributed"``  → :meth:`g_distributed` (exact line elimination)
+
+        All derived coefficients (:meth:`zeta`, :meth:`nu`, :meth:`mu`,
+        :meth:`t_cr`, …) follow this selection through ``g()``.
+        """
+        model = self.resolved_coupling_model()
+        if model == "distributed":
+            return self.g_distributed()
+        if model == "bus":
+            return self.g_bus()
+        if model == "direct":
+            return self.g_direct()
         return self.g_bus() + self.g_direct()
 
     def J(self) -> float:
@@ -1128,7 +1249,8 @@ class bus_resonator_coupler(edge):
         and resonator–q1), plus — when ``C_01`` is set — the *direct*
         qubit–qubit capacitive term, so the dressed spectrum (zeta_full,
         avoided crossings, CZ analysis) includes both exchange paths and
-        their interference.
+        their interference. The direct term is omitted when the resolved
+        coupling model is ``"bus"`` (mode-mediated only, by user selection).
 
         Returns
         -------
@@ -1157,7 +1279,7 @@ class bus_resonator_coupler(edge):
             add_hc=True,
         )
         g_01 = self.g_direct()
-        if g_01:
+        if g_01 and self.resolved_coupling_model() != "bus":
             # n̂⊗n̂ is already hermitian — no add_hc.
             hs.add_interaction(
                 g_strength=g_01 * 1e-9,
