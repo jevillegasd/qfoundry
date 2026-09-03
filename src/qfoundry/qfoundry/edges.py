@@ -828,11 +828,41 @@ class bus_resonator_coupler(edge):
         bus-mediated term (bus above the qubits ⇒ J_bus < 0, g_direct > 0),
         so it can partially or fully cancel J.
 
+    coupling_model : str, default "auto"
+        Which physical model :meth:`g` (and every coefficient derived from
+        it) uses — one of :attr:`COUPLING_MODELS`, see *Coupling models*.
+
     Notes
     -----
     The effective exchange coupling is derived in the dispersive regime
     (:math:`|g_{ir}| \\ll |\\Delta_{ir}|`) by adiabatically eliminating the
     resonator mode, plus the direct capacitive term when ``C_01`` is set.
+
+    **Coupling models.** The qubit–bus couplings :math:`g_{0r}, g_{1r}`
+    feed the mode-mediated term; ``coupling_model`` selects how they (and
+    the direct path) combine into the effective exchange J:
+
+    - ``"bus"`` / ``"combined"`` — single resonator mode, including
+      counter-rotating terms; ``combined`` adds the direct ``C_01``
+      exchange. With these models :meth:`zeta` is obtained from the fully
+      diagonalized qubit–bus–qubit Hamiltonian (the resonator is
+      instantiated in :meth:`hilbert_space`; ``combined`` also carries the
+      direct :math:`\\hat n \\otimes \\hat n` term).
+    - ``"direct"`` — the edge behaves as a plain capacitive coupler with
+      :math:`C_{12} = C_{01}`; the bus mode is dropped entirely.
+    - ``"distributed"`` — exact ABCD elimination of the whole
+      C_0r–line–C_1r network at the qubit frequency
+      (:meth:`C_eff_distributed`). This is the correct model for a
+      far-detuned bus (:math:`f_{bus} > 2 f_q`), where the single-mode
+      picture overcounts the interaction: validated against a measured
+      device (200 kHz ZZ at f_q ≈ 3.7 GHz, f_bus = 24 GHz).
+    - ``"auto"`` (default) — resolves by detuning: ``distributed`` when
+      :meth:`is_far_detuned`, else ``combined``
+      (:meth:`resolved_coupling_model`).
+
+    All derived coefficients (:meth:`zeta`, :meth:`nu`, :meth:`mu`,
+    :meth:`t_cr`) follow the selected model through :meth:`g` and
+    :meth:`hilbert_space`.
 
     References
     ----------
