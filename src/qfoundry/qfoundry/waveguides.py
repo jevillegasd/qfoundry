@@ -150,7 +150,8 @@ class cpw:
 
         L_k = (
             mu_0 * (self.Lambda_L)**2  / ((d * w)) * g
-        )  # Equation (2) in 10.1063/1.4962172, Qualitatively, in the limit S << W [...] the kinetic contribution reduces to Lk = mu_0*Lambda_L^2/W
+        )  # Thin-film (d << Lambda_L) kinetic inductance, Watanabe et al., Jpn. J. Appl. Phys. 33, 5708 (1994), doi:10.1143/JJAP.33.5708
+
         return L_m, L_k
     
     def phase_velocity(self):

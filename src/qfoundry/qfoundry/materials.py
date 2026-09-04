@@ -8,12 +8,18 @@ inductance calculations).
 
 References
 ----------
-- Tinkham, Introduction to Superconductivity - BCS gap and coherence length
+- Tinkham, Introduction to Superconductivity - BCS gap, coherence length and
+  the Pippard dirty-limit penetration depth
 - Wallraff et al. (2008), arXiv:0807.4094 - CPW kinetic inductance
+- Ashcroft & Mermin, Solid State Physics - free-electron Fermi surface
+  (Fermi wavevector/velocity) and the Drude relaxation time
+- Zmuidzinas, Annu. Rev. Condens. Matter Phys. 3, 169 (2012) - sheet kinetic
+  inductance from sheet resistance in the local (dirty) limit,
+  L_k/sq = hbar*Rs/(pi*Delta)
 """
 
 import numpy as np
-from scipy.constants import m_e, e
+from scipy.constants import m_e, e, hbar
 from scipy.constants import elementary_charge as e_0
 from scipy.constants import Boltzmann as k_B
 
@@ -127,15 +133,24 @@ class sc_metal:
         self.name = name
         self.thickness = thickness
 
+    def sc_gap_0(self):
+        """Zero-temperature BCS gap Delta_0 = 1.764 kB Tc, in Joules.
+
+        The single source of the BCS weak-coupling prefactor — every
+        gap-derived quantity in this class (Delta(T), xi_0, dirty-limit
+        L_sq) goes through here so the gap model lives in exactly one place.
+        """
+        return 1.764 * k_B * self.Tc
+
     def sc_gap(self):
         """BCS superconducting gap Delta(T) in Joules.
 
-        Delta_0 = 1.764 kB Tc at T → 0. Above ~0.2·Tc the standard BCS
-        interpolation Delta(T) = Delta_0 · tanh(1.74·sqrt(Tc/T − 1)) is used
-        (accurate to ~2% over the full range; see Tinkham ch. 3). Returns 0
-        at or above Tc.
+        Delta_0 = 1.764 kB Tc at T → 0 (see :meth:`sc_gap_0`). Above ~0.2·Tc
+        the standard BCS interpolation
+        Delta(T) = Delta_0 · tanh(1.74·sqrt(Tc/T − 1)) is used (accurate to
+        ~2% over the full range; see Tinkham ch. 3). Returns 0 at or above Tc.
         """
-        delta_0 = 1.764 * k_B * self.Tc
+        delta_0 = self.sc_gap_0()
         if self.T <= 0.2 * self.Tc:
             return delta_0
         if self.T >= self.Tc:
@@ -168,6 +183,94 @@ class sc_metal:
     def coherence_length(self):
         """Dirty-limit BCS coherence length, in m, from normal-state resistivity."""
         return 1.05e-3 * np.sqrt(self.rho / self.Tc)
+
+    def sheet_resistance(self):
+        """Normal-state sheet resistance Rs = rho/t, in Ohm/square.
+
+        Requires ``thickness`` to be set.
+        """
+        if not self.thickness:
+            raise ValueError(
+                "sheet_resistance requires the film thickness to be set."
+            )
+        return self.rho / self.thickness
+
+    def fermi_wavevector(self):
+        """Fermi wavevector k_F, in 1/m, from the free-electron model.
+
+        k_F = (3 pi^2 n_s)^(1/3), with n_s the superconducting (~normal-state
+        conduction) electron density.
+        """
+        return (3 * np.pi**2 * self.n_s) ** (1 / 3)
+
+    def fermi_velocity(self):
+        """Fermi velocity v_F = hbar k_F / m_e, in m/s (free-electron model)."""
+        return hbar * self.fermi_wavevector() / m_e
+
+    def scattering_time(self):
+        """Drude elastic-scattering time tau, in s, from the normal-state
+        resistivity: tau = m_e / (n_s e^2 rho)."""
+        return m_e / (self.n_s * e**2 * self.rho)
+
+    def mean_free_path(self):
+        """Electron mean free path l = v_F * tau, in m."""
+        return self.fermi_velocity() * self.scattering_time()
+
+    def coherence_length_bcs(self):
+        """Intrinsic (clean-limit) BCS coherence length xi_0, in m.
+
+        xi_0 = hbar*v_F/(pi*Delta_0) with Delta_0 the zero-temperature gap
+        (Tinkham eq. 3.3; the familiar 0.18·hbar·v_F/(kB·Tc) form is this
+        with Delta_0 = 1.764 kB Tc substituted in). xi_0 is a T=0-defined
+        quantity, hence :meth:`sc_gap_0` rather than the T-dependent gap.
+        Unlike :meth:`coherence_length` (an empirical resistivity-based
+        dirty-limit estimate), this is derived from the free-electron Fermi
+        velocity and does not depend on rho.
+        """
+        return hbar * self.fermi_velocity() / (np.pi * self.sc_gap_0())
+
+    def effective_penetration_depth(self):
+        """Dirty-limit (Pippard-corrected) effective penetration depth, in m.
+
+        lambda_eff = lambda_L * sqrt(xi_0/l), valid for l << xi_0 (mean free
+        path much shorter than the intrinsic coherence length).
+        """
+        return self.london_penetration_depth() * np.sqrt(
+            self.coherence_length_bcs() / self.mean_free_path()
+        )
+
+    def sheet_kinetic_inductance(self, limit: str = "auto"):
+        """Sheet kinetic inductance L_sq, in H/square.
+
+        For the kinetic inductance per unit length of an actual trace
+        geometry, use the conformal-mapping result in
+        :class:`qfoundry.waveguides.cpw` (``cpw.inductances``) — a bare
+        L_sq/W estimate ignores field concentration at the trace edges.
+
+        Parameters
+        ----------
+        limit : {"auto", "clean", "dirty"}, default "auto"
+            "clean" uses the London-depth result L_sq = mu_0 lambda_L^2 / t
+            (requires ``thickness``). "dirty" uses the local-limit
+            Mattis-Bardeen result L_sq = hbar Rs / (pi Delta(T)), with Rs
+            the sheet resistance (also requires ``thickness``, via
+            :meth:`sheet_resistance`) and Delta(T) from :meth:`sc_gap`
+            (Zmuidzinas 2012). "auto" picks "dirty" when the mean free path
+            is shorter than the intrinsic coherence length
+            (mean_free_path() < coherence_length_bcs()) and "clean"
+            otherwise.
+        """
+        if limit == "auto":
+            limit = "dirty" if self.mean_free_path() < self.coherence_length_bcs() else "clean"
+        if limit == "clean":
+            if not self.thickness:
+                raise ValueError(
+                    "sheet_kinetic_inductance('clean') requires the film thickness to be set."
+                )
+            return mu_0 * self.london_penetration_depth() ** 2 / self.thickness
+        if limit == "dirty":
+            return hbar * self.sheet_resistance() / (np.pi * self.sc_gap())
+        raise ValueError(f"Unknown limit {limit!r}; expected 'auto', 'clean' or 'dirty'.")
 
     def __str__(self):
         return (
