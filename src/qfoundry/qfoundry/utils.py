@@ -192,6 +192,56 @@ def Ic_to_Ej(Ic):
     return Ic / (4.0 * pi * e_0)
 
 
+def Ej_from_f01(f01, Ec):
+    """Josephson energy (Hz) of a transmon from its measured f01 and Ec (Hz).
+
+    Inverts the leading-order transmon frequency f01 = sqrt(8·Ej·Ec) − Ec
+    (Koch et al. 2007, Eq. 3.1):  Ej = (f01 + Ec)² / (8·Ec).
+    """
+    return (f01 + Ec) ** 2 / (8.0 * Ec)
+
+
+def IcR_ideal(delta_eff):
+    """Ideal Ambegaokar–Baratoff product (Ic·R)_ideal = πΔ_eff/(2e) in V (T → 0).
+
+    ``delta_eff`` is the effective junction gap in J (see
+    qfoundry.materials.jj_effective_gap). For Δ_eff = 180 µeV this is
+    ≈ 282.7 µV — the theoretical upper bound of Ic·Rn for the material.
+    """
+    return pi * delta_eff / (2.0 * e_0)
+
+
+def IcR_measured(f01, Ec, Rn):
+    """Fit-free Ic·Rn product (V) of one junction from measured quantities.
+
+    Ic is extracted from spectroscopy — Ej = (f01 + Ec)²/(8Ec) (``Ej_from_f01``),
+    Ic = 4πe·Ej (``Ej_to_Ic``) — and multiplied by the *raw* room-temperature
+    resistance Rn. No R*/Rx correction and no fitted prefactor enter.
+    """
+    return Ej_to_Ic(Ej_from_f01(f01, Ec)) * Rn
+
+
+def k_Delta(f01, Ec, Rn, delta_eff):
+    """Per-junction Ambegaokar–Baratoff efficiency, purely from measurements.
+
+        k_Δ ≡ Ic·Rn / (Ic·R)_ideal = 2e·Ic·Rn / (πΔ_eff)
+
+    with Ic from the measured f01 and Ec (``IcR_measured``) and Rn the raw
+    room-temperature probe reading. It contains no fitted parameter (no R*,
+    no A): every qubit is scored directly against physical constants and the
+    theoretical bound ``IcR_ideal(delta_eff)``.
+
+    Relation to a population fit f01 = sqrt(A·Ec/(Rn + R*)) − Ec:
+
+        k_Δ(Rn) = (A·e²/Δ_eff) · Rn/(Rn + R*) = k_Δ,cryo · Rn/(Rn + R*)
+
+    where k_Δ,cryo = A·e²/Δ_eff = 2e·RI_factor/(πΔ_eff) is the intrinsic
+    cryogenic ratio stored in the PDK (``qfoundry.PDK.PDK.k_Delta_cryo``) and
+    Rn/(Rn + R*) the room-temperature → cryogenic resistance scaling.
+    """
+    return IcR_measured(f01, Ec, Rn) / IcR_ideal(delta_eff)
+
+
 def Ck_to_kappa_ext(f0, Ck, C, Z_L=50.0):
     """External coupling rate (Hz) from coupling capacitance Ck onto a resonator
     of effective capacitance C at frequency f0. Same relation as

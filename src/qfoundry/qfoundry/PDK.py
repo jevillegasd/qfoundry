@@ -1,6 +1,7 @@
 # Constants and parameters for the PDK
-from math import pi
+from math import pi, tanh
 from scipy.constants import elementary_charge as _e0
+from scipy.constants import Boltzmann as _kB
 from qfoundry.materials import sc_metal, sc_stack, mat_nb, mat_ta, n_Al
 from qfoundry.waveguides import cpw
 
@@ -161,7 +162,12 @@ class PDK:
         self.jj_gammax = (
             4.513e-07  # Josephson Junction Capacitance per unit area correction
         )
-        self.RI_factor: float | None = None  # Measured Ic·(Rn+Rx) AB product [V]
+        # Intrinsic cryogenic Ambegaokar–Baratoff efficiency of the process:
+        #   k_Δ ≡ Ic·(Rn + Rx) / (πΔ_eff/2e)   (dimensionless, 1 = ideal AB)
+        # Together with jj_R0 (R*) it fully parameterises the junction model —
+        # the AB product RI_factor = k_Δ·πΔ_eff/(2e) and the f01(Rn) prefactor
+        # A = k_Δ·Δ_eff/e² are *derived* (properties below), never stored.
+        self.k_Delta: float | None = None
         # Junction lead materials (names in self.materials); None falls back
         # to the "base" material. Base = bottom electrode, counter = top.
         self.jj_base_material: str | None = None
@@ -322,28 +328,72 @@ class PDK:
         base, counter = self.jj_lead_materials()
         return ab_effective_gap(base.sc_gap(), counter.sc_gap())
 
+    def IcR_ideal(self) -> float:
+        """Ideal Ambegaokar–Baratoff product (Ic·R)_ideal = πΔ_eff/(2e) in V,
+        for this PDK's junction-lead materials (see jj_gap())."""
+        from qfoundry.utils import IcR_ideal
+        return IcR_ideal(self.jj_gap())
+
     @property
-    def k_Delta(self) -> float | None:
-        """Modified Ambegaokar-Baratoff correction factor.
+    def RI_factor(self) -> float | None:
+        """Derived Ambegaokar–Baratoff product Ic·(Rn + Rx) = k_Δ·πΔ_eff/(2e) in V.
 
-        Defined by:  Ic·(Rn + Rx) = k_Δ · πΔ_eff / (2e)
-        where Δ_eff is the effective junction gap from the two lead
-        materials (jj_gap(); equal-gap leads give Δ_eff = 1.764·kB·Tc).
-
-        Returns None if RI_factor is not set.
+        Computed from the stored :attr:`k_Delta` and the lead-material gap;
+        assigning a value stores the equivalent k_Δ (kept for callers that
+        still think in volts). None when k_Delta is unset.
         """
-        if self.RI_factor is None or self.RI_factor <= 0:
+        if self.k_Delta is None or self.k_Delta <= 0:
             return None
         try:
-            delta_eff = self.jj_gap()  # J
+            return self.k_Delta * self.IcR_ideal()
         except (KeyError, ValueError):
             return None
-        return self.RI_factor * 2.0 * _e0 / (pi * delta_eff)
+
+    @RI_factor.setter
+    def RI_factor(self, value: float | None) -> None:
+        self.k_Delta = None if value is None or value <= 0 else value / self.IcR_ideal()
+
+    def A(self, T: float | None = None) -> float | None:
+        """Prefactor of the junction frequency model, in Hz·Ω:
+
+            f01(Rn, T) = sqrt( A(T)·Ec / (Rn + Rx) ) − Ec
+            A(T) = k_Δ · Δ_eff(T)/e² · tanh( Δ_eff(T) / 2k_BT )
+
+        Computed from the stored k_Δ (never stored itself); ``T`` defaults to
+        T_op, where tanh ≈ 1. Returns None when k_Delta is unset.
+        """
+        if self.k_Delta is None or self.k_Delta <= 0:
+            return None
+        T = self.T_op if T is None else T
+        delta = self.jj_gap()
+        return self.k_Delta * delta * tanh(delta / (2.0 * _kB * T)) / _e0**2
+
+    def k_Delta_at(self, Rn: float) -> float | None:
+        """Model k_Δ expected for a junction with raw probe reading ``Rn`` (Ω).
+
+            k_Δ(Rn) = k_Δ · Rn / (Rn + Rx),   Rx = jj_R0
+
+        i.e. the per-junction efficiency the PDK's (k_Δ, R*) pair predicts at
+        that resistance, to compare against the fit-free
+        :meth:`k_Delta_measured`. Returns None when k_Delta is unset or
+        Rn + Rx ≤ 0.
+        """
+        if self.k_Delta is None or Rn is None or Rn <= 0 or Rn + self.jj_R0 <= 0:
+            return None
+        return self.k_Delta * Rn / (Rn + self.jj_R0)
+
+    def k_Delta_measured(self, f01: float, Ec: float, Rn: float) -> float:
+        """Fit-free k_Δ of one junction from its measured f01, Ec (Hz) and raw
+        Rn (Ω): ``qfoundry.utils.k_Delta`` evaluated with this PDK's Δ_eff —
+        2e·Ic·Rn/(πΔ_eff) with Ic from spectroscopy. Contains no fitted
+        parameter; compare with :meth:`k_Delta_at` (model)."""
+        from qfoundry.utils import k_Delta
+        return k_Delta(f01, Ec, Rn, self.jj_gap())
 
     def Rn_from_Ej(self, Ej_Hz: float) -> float | None:
         """Estimate the raw probe resistance target from design Josephson energy.
 
-        Uses the AB relation:  Rn_calc = RI_factor / Ic_AB - Rx
+        Uses the AB relation:  Rn_calc = RI_factor / Ic_AB - Rx,  RI_factor = k_Δ·πΔ_eff/(2e)
         where  Ic_AB = Ej · 4πe  (Ej in the E/h "Hz" convention, see
         qfoundry.utils.Ej_to_Ic — no extra /h) and Rx = jj_R0.
 
@@ -351,13 +401,15 @@ class PDK:
         reading*; the effective junction resistance in the AB product is
         Rn + Rx (Rx is a positive additive correction — see jj_R0).
 
-        Returns None if RI_factor is not set or result would be non-positive.
+        RI_factor is the derived product k_Δ·πΔ_eff/(2e) (see RI_factor).
+        Returns None if k_Delta is not set or result would be non-positive.
         """
         from qfoundry.utils import Ej_to_Ic
-        if self.RI_factor is None or self.RI_factor <= 0 or Ej_Hz <= 0:
+        RI = self.RI_factor
+        if RI is None or Ej_Hz <= 0:
             return None
         Ic_AB = Ej_to_Ic(Ej_Hz)
-        Rn = self.RI_factor / Ic_AB - self.jj_R0
+        Rn = RI / Ic_AB - self.jj_R0
         return Rn if Rn > 0 else None
 
     def cpw(self, name: str | None = None):
