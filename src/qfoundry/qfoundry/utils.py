@@ -7,7 +7,7 @@ Some formulas reference:
 
 from scipy.constants import elementary_charge as e_0
 from scipy.constants import h, hbar
-from numpy import sqrt, pi, tanh, ix_
+from numpy import sqrt, pi, tanh, ix_, array, asarray, integer
 from numpy.linalg import inv
 
 from qfoundry.circuit import circuit
@@ -56,6 +56,110 @@ def reduce_maxwell(C, keep_indices):
     keep = list(keep_indices)
     env = [i for i in range(C.shape[0]) if i not in keep]
     return Schur_complement(C, keep, env) if env else C[ix_(keep, keep)]
+
+
+def _as_node_list(nodes):
+    """Normalise a node spec (one index, or a sequence of indices) to a list."""
+    if isinstance(nodes, (int, integer)):
+        return [int(nodes)]
+    out = [int(i) for i in nodes]
+    if len(out) not in (1, 2):
+        raise ValueError(
+            f"A qubit/target node spec must be one node (grounded) or two island "
+            f"nodes (floating transmon), got {len(out)}."
+        )
+    return out
+
+
+def mode_weights(nodes):
+    """Charge-basis projection weights of the mode carried by ``nodes``.
+
+    A grounded element (single node) couples through its node voltage
+    (weight ``[1]``). A floating transmon (two islands) couples through its
+    *differential* mode, :math:`V_q = V_1 - V_2`, whose projection onto the
+    island charges is ``[+1/2, -1/2]`` for symmetric islands — the
+    common-mode (``[1/2, 1/2]``) part of any island–environment capacitance
+    does not drive the junction and must not be counted as coupling.
+
+    Asymmetric islands shift the projection to :math:`[C_{2g}, -C_{1g}] /
+    (C_{1g} + C_{2g})` (ground capacitances :math:`C_{ig}` of the reduced
+    network); for the typical few-percent asymmetry this changes the
+    effective coupling by ~2 %, so the symmetric weights are used throughout
+    for a reproducible, matrix-order-independent definition.
+    """
+    n = len(_as_node_list(nodes))
+    return array([1.0]) if n == 1 else array([0.5, -0.5])
+
+
+def effective_coupling(C, qubit_nodes, target_nodes, keep=()):
+    r"""Effective coupling capacitance (same units as ``C``) between the mode
+    carried by ``qubit_nodes`` and the mode carried by ``target_nodes``,
+    from a full Maxwell capacitance matrix.
+
+    Every other node (except those listed in ``keep``) is adiabatically
+    eliminated (Schur complement, :func:`reduce_maxwell`), then the mutual
+    block between the two groups is projected onto each side's mode
+    (:func:`mode_weights`):
+
+    .. math::
+
+        C_\mathrm{eff} = \left| w_q^{T}\,(-S_{qt})\,w_t \right|
+
+    Grounded qubit to a single node: the Schur-reduced mutual
+    :math:`C_{qt}`. Floating transmon (islands 1, 2) to a single node
+    :math:`t`: :math:`|C_{2t} - C_{1t}| / 2` — the *differential* coupling,
+    which for a readout/bus/drive electrode facing one island is ~2× smaller
+    than the raw island-to-electrode entry (the common-mode part is screened
+    by the other island) and far smaller than :math:`C_{1t} + C_{2t}`.
+    Floating to floating: :math:`|C_{11} - C_{12} - C_{21} + C_{22}| / 4`.
+
+    Parameters
+    ----------
+    C : array_like
+        Full NxN Maxwell-convention matrix (negative off-diagonals).
+    qubit_nodes, target_nodes : int or sequence of int
+        One node index (grounded element) or the two island indices of a
+        floating transmon.
+    keep : sequence of int, optional
+        Further nodes that are dynamical in the caller's model (e.g. the
+        other qubit of a bus edge) and must therefore stay in the reduced
+        network instead of being folded into this coupling.
+    """
+    q = _as_node_list(qubit_nodes)
+    t = _as_node_list(target_nodes)
+    if set(q) & set(t):
+        raise ValueError("qubit_nodes and target_nodes must be disjoint.")
+    extra = [int(i) for i in keep if int(i) not in q and int(i) not in t]
+    S = reduce_maxwell(asarray(C, dtype=float), q + t + extra)
+    S_qt = -S[ix_(range(len(q)), range(len(q), len(q) + len(t)))]  # mutual block
+    return float(abs(mode_weights(q) @ S_qt @ mode_weights(t)))
+
+
+def effective_Cq(C, qubit_nodes):
+    r"""Total (differential-mode) capacitance :math:`C_\Sigma` seen by the
+    junction of a transmon, from a full Maxwell matrix.
+
+    All non-qubit nodes are Schur-eliminated. Grounded transmon: the reduced
+    island self-capacitance. Floating transmon (islands 1, 2):
+
+    .. math::
+
+        C_\Sigma = C_{12} + \frac{C_{1g}\,C_{2g}}{C_{1g} + C_{2g}}
+
+    with :math:`C_{12}` the reduced island–island mutual and
+    :math:`C_{ig}` the reduced island–ground capacitances (the series
+    combination of the two ground paths in parallel with the direct one).
+    Feed :func:`Cs_to_E` for :math:`E_C`.
+    """
+    q = _as_node_list(qubit_nodes)
+    S = reduce_maxwell(asarray(C, dtype=float), q)
+    if len(q) == 1:
+        return float(S[0, 0])
+    C12 = -float(S[0, 1])
+    C1g = float(S[0, 0] + S[0, 1])
+    C2g = float(S[1, 1] + S[1, 0])
+    series_g = C1g * C2g / (C1g + C2g) if (C1g + C2g) > 0 else 0.0
+    return C12 + series_g
 
 
 def delta_cap(C12, C13, C23, C3):
