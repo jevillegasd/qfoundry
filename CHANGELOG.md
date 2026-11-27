@@ -3,6 +3,16 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- `qfoundry.utils.effective_coupling` / `effective_Cq` / `mode_weights`: Schur-
+  reduced, mode-projected capacitances from a full Maxwell matrix. A floating
+  two-island transmon couples to an electrode through its *differential* mode,
+  `|C_2r - C_1r|/2` of the reduced islands+electrode block — not the raw
+  island-to-electrode entry, which overestimates g_qr by ~2x and a bus J by
+  ~4x (confirmed against measured readout g on a 4-qubit device).
+  `effective_Cq` gives the matching C_Sigma (`C_12 + C_1g C_2g/(C_1g+C_2g)`).
+- `bus_resonator_coupler.from_maxwell` accepts a floating qubit as its two
+  island names and uses the differential C_0r/C_1r/C_01; grounded single-node
+  behaviour is unchanged.
 - PDK junction model is now parameterised by `PDK.k_Delta` (the intrinsic
   cryogenic Ambegaokar–Baratoff efficiency k_Δ = Ic·(Rn+Rx)/(πΔ_eff/2e)) and
   `PDK.jj_R0` (R*). `PDK.RI_factor` is a derived property (k_Δ·πΔ_eff/2e, with

@@ -58,3 +58,6 @@ agent = [
   "google-generativeai",
   "anthropic"
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

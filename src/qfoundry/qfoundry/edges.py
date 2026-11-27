@@ -307,6 +307,16 @@ def _C_cap_qr(g_Hz: float, qubit: transmon, resonator: cpw_resonator) -> float:
     return 2.0 * g_Hz * np.sqrt(C_q * C_r) / np.sqrt(f_q * f_r)
 
 
+def _node_indices(nodes: list, spec) -> list:
+    """Resolve a qubit node spec (one name, or a sequence of island names for a
+    floating transmon) to a list of indices into ``nodes``."""
+    names = [spec] if isinstance(spec, str) else list(spec)
+    missing = [n for n in names if n not in nodes]
+    if missing:
+        raise ValueError(f"node(s) {missing} not found in nodes: {nodes}")
+    return [nodes.index(n) for n in names]
+
+
 def label_bare_states(evecs: np.ndarray, dims: list) -> list:
     r"""Identify the dominant bare product state for each dressed eigenvector.
 
@@ -1015,9 +1025,9 @@ class bus_resonator_coupler(edge):
         q1,
         nodes: list,
         C_matrix_F,
-        q0_node: str,
+        q0_node,
         resonator_node: str,
-        q1_node: str,
+        q1_node,
         E_l: float,
         **resonator_kwargs,
     ) -> "bus_resonator_coupler":
@@ -1030,12 +1040,16 @@ class bus_resonator_coupler(edge):
         coupling region.
 
         The matrix is reduced via Schur complement (adiabatic elimination of
-        every node other than the two qubit islands and the resonator body),
-        yielding a 3x3 effective capacitance matrix.  The off-diagonal terms
-        give :math:`C_{0r}`, :math:`C_{1r}` **and the direct qubit–qubit
-        capacitance** :math:`C_{01}` (the (q0, q1) element — essential for a
-        strongly detuned bus, where the direct exchange it produces is
-        comparable to the bus-mediated J and of opposite sign); the
+        every node other than the qubit islands and the resonator body) and
+        each coupling is projected onto the modes that actually interact
+        (:func:`~qfoundry.utils.effective_coupling`): :math:`C_{0r}`,
+        :math:`C_{1r}` **and the direct qubit–qubit capacitance**
+        :math:`C_{01}` (essential for a strongly detuned bus, where the
+        direct exchange it produces is comparable to the bus-mediated J and
+        of opposite sign). A *floating* transmon is given as its two island
+        nodes; its coupling is then the differential one,
+        :math:`|C_{2r} - C_{1r}|/2`, not the raw island-to-resonator entry
+        (which overestimates :math:`g_{qr}` by ~2× and J by ~4×). The
         resonator's diagonal term gives its full electrostatic
         self-capacitance, converted to the standing-wave *mode* capacitance
         (distributed part at half weight + end couplers at full weight)
@@ -1055,9 +1069,11 @@ class bus_resonator_coupler(edge):
             Full NxN mutual-capacitance matrix in Farads, Maxwell convention
             (diagonal = self-cap to ground + sum of mutual caps; off-diagonal
             negative).
-        q0_node, resonator_node, q1_node : str
-            Names (within ``nodes``) of the q0 island, the resonator body, and
-            the q1 island respectively.
+        q0_node, q1_node : str or sequence of two str
+            Name (within ``nodes``) of the qubit island for a grounded
+            transmon, or the two island names for a floating transmon.
+        resonator_node : str
+            Name of the resonator body.
         E_l : float
             Resonator inductive energy :math:`E_L/h` (Hz).
         **resonator_kwargs
@@ -1071,23 +1087,31 @@ class bus_resonator_coupler(edge):
         -------
         bus_resonator_coupler
         """
-        from qfoundry.utils import Cs_to_E, reduce_maxwell
+        from qfoundry.utils import Cs_to_E, reduce_maxwell, effective_coupling
 
-        i0, ir, i1 = nodes.index(q0_node), nodes.index(resonator_node), nodes.index(q1_node)
-        S = reduce_maxwell(np.asarray(C_matrix_F, dtype=float), [i0, ir, i1])
+        C = np.asarray(C_matrix_F, dtype=float)
+        i0, i1 = _node_indices(nodes, q0_node), _node_indices(nodes, q1_node)
+        ir = nodes.index(resonator_node)
 
-        C_0r = abs(float(S[0, 1]))
-        C_1r = abs(float(S[2, 1]))
-        C_01 = abs(float(S[0, 2]))
+        dyn = i0 + [ir] + i1  # every node of the 3-body model stays dynamical
+        C_0r = effective_coupling(C, i0, ir, keep=dyn)
+        C_1r = effective_coupling(C, i1, ir, keep=dyn)
+        C_01 = effective_coupling(C, i0, i1, keep=dyn)
         # Mode capacitance of the distributed resonator — NOT the raw Maxwell
-        # diagonal: S[1,1] is the FULL electrostatic capacitance (C'·ℓ plus
-        # the coupling caps), while the standing-wave mode's energy-weighted
-        # capacitance is the distributed ground part at half weight
-        # (∫C'cos² = C'ℓ/2) plus the end couplers at full weight (both bus
-        # ends are voltage antinodes for the half-wave default). Using
-        # S[1,1] directly underestimates f0 by ~√2.
-        C_gnd = float(S[1, 1]) - C_0r - C_1r
-        E_c = Cs_to_E(C_gnd / 2.0 + C_0r + C_1r)
+        # diagonal: the reduced S[r,r] is the FULL electrostatic capacitance
+        # (C'·ℓ plus the coupling caps), while the standing-wave mode's
+        # energy-weighted capacitance is the distributed ground part at half
+        # weight (∫C'cos² = C'ℓ/2) plus the end couplers at full weight (both
+        # bus ends are voltage antinodes for the half-wave default). Using
+        # S[r,r] directly underestimates f0 by ~√2. The end loading is the
+        # resonator's total electrostatic coupling to the qubit islands
+        # (common + differential mode — both load the line end), not the
+        # differential C_0r/C_1r that drive the exchange.
+        S = reduce_maxwell(C, dyn)
+        r = len(i0)
+        C_end = float(np.sum(np.abs(S[r, :r])) + np.sum(np.abs(S[r, r + 1:])))
+        C_gnd = float(S[r, r]) - C_end
+        E_c = Cs_to_E(C_gnd / 2.0 + C_end)
 
         resonator_kwargs.setdefault("length_f", 2)
         resonator = cpw_resonator.from_energies(E_c, E_l, **resonator_kwargs)
